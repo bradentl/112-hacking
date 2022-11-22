@@ -11,16 +11,21 @@ def debug(app):
 	app.board = Board((app.width, app.height), app.sCoreImg.width)
 
 def createEnemy(app):
-	pos = (random.randint(app.board.dim[0], app.board.dim[1]),
-		   random.randint(app.board.dim[0], app.board.dim[1]))
+	pos = (random.randint(app.board.dim[0] + app.enemyImg.width, app.board.dim[1] - app.enemyImg.width),
+		   random.randint(app.board.dim[0] + app.enemyImg.height, app.board.dim[1] - app.enemyImg.height))
 	enemy = Enemy(pos)
 	app.board.enemies.add(enemy)
+
+def createBlock(app):
+	pos = (random.randint(app.board.dim[0], app.board.dim[1]),
+		   random.randint(app.board.dim[0], app.board.dim[1]))
 ############
 
 def appStarted(app):
 	app.board = None
 	app.gameOver = False
-	initSprites(app)
+	app.timer = 0
+	initSprites(app, scale=7/24)
 	debug(app) # Remember to remove in final product
 
 def initSprites(app, scale=1/3):
@@ -33,20 +38,34 @@ def initSprites(app, scale=1/3):
 	app.pProjImg = app.scaleImage(app.loadImage("assets/pProjectile.png"), scale)
 
 def timerFired(app):
+	# Useful for activating code every x time constants
+	app.timer = (app.timer + 1) % 10
+
 	if(not app.board):
 		return
 
-	if(app.board.player.firingDelay > 0):
-		app.board.player.firingDelay -= 1
-
-	if(app.board.player.target):
+	if(app.board.player.target and (app.timer % 2) == 0):
+		# Will constant calls significantly impact efficiency?
+		# Re-establishes closest target in case closer enemy appears
+		app.board.player.determineTarget(app.board.enemies, app.board.cores)
 		app.board.player.autoOrient()
 	
+	if(app.board.player.firingDelay > 0):
+		app.board.player.firingDelay -= 1
+	# Iterates over a copied set to allow removal of elements
+	for proj in app.board.player.projs.copy():
+		if(proj.lifespan <= 0):
+			# Is a __hash__ method necessary?
+			app.board.player.projs.remove(proj)
+		else:
+			proj.move()
+			proj.lifespan -= 1
+
 	for core in app.board.cores:
 		if(core.firingDelay > 0):
 			core.firingDelay -= 1
 		
-		core.firingPattern(3, app.coreImg.height, app.board.player.pos)
+		core.firingPattern(app.coreImg.height, app.board.player.pos)
 
 		for proj in core.projs.copy():
 			if(proj.lifespan <= 0):
@@ -71,15 +90,6 @@ def timerFired(app):
 				proj.move()
 				proj.lifespan -= 1
 
-	# Iterates over a copied set to allow removal of elements
-	for proj in app.board.player.projs.copy():
-		if(proj.lifespan <= 0):
-			# Is a __hash__ method necessary?
-			app.board.player.projs.remove(proj)
-		else:
-			proj.move()
-			proj.lifespan -= 1
-
 def keyPressed(app, event):
 	# If board is inactive, skip board-related commands
 	if(not app.board):
@@ -89,7 +99,7 @@ def keyPressed(app, event):
 		case "r": 		app.board.player.rotate(-10)
 		case "e": 		app.board.player.rotate(+10)
 		case "Space":	app.board.player.createProjectile(app.playerImg.height)
-		case "t":		app.board.player.determineTarget(app.board.enemies, app.board.cores)
+		case "t":		app.board.player.toggleTarget(app.board.enemies, app.board.cores)
 		# Debug keys
 		case "k":		createEnemy(app)
 
@@ -115,31 +125,29 @@ def redrawAll(app, canvas):
 		# Drawing player
 		canvas.create_image(app.board.player.pos[0], app.board.player.pos[1],
 							image=ImageTk.PhotoImage(app.playerImg.rotate(app.board.player.rot)))
-		if(app.board.player.target):
-			canvas.create_line(app.board.player.pos[0], app.board.player.pos[1],
-							   app.board.player.target.pos[0], app.board.player.target.pos[1], fill="blue", dash=(5,1))
-
 		# Drawing projectiles
 		for proj in app.board.player.projs:
 			canvas.create_image(proj.pos[0], proj.pos[1],
 							image=ImageTk.PhotoImage(app.projImg.rotate(proj.rot)))
+		if(app.board.player.target):
+			canvas.create_line(app.board.player.pos[0], app.board.player.pos[1],
+							   app.board.player.target.pos[0], app.board.player.target.pos[1], fill="blue", dash=(5,1))
 		
 		# Drawing cores
 		for core in app.board.cores:
-			canvas.create_image(core.pos[0], core.pos[1],
-								image=ImageTk.PhotoImage(app.sCoreImg if core.shield else app.coreImg))
-			
 			for proj in core.projs:
 				canvas.create_image(proj.pos[0], proj.pos[1],
 									image=ImageTk.PhotoImage(app.oProjImg if (type(proj) == OrangeProjectile) else app.pProjImg))
+			canvas.create_image(core.pos[0], core.pos[1],
+								image=ImageTk.PhotoImage(app.sCoreImg if core.shield else app.coreImg))
 
 		# Drawing enemies
 		for enemy in app.board.enemies:
-			canvas.create_image(enemy.pos[0], enemy.pos[1],
-								image=ImageTk.PhotoImage(app.enemyImg.rotate(enemy.rot)))
 			for proj in enemy.projs:
 				canvas.create_image(proj.pos[0], proj.pos[1],
 									image=ImageTk.PhotoImage(app.oProjImg if (type(proj) == OrangeProjectile) else app.pProjImg))
+			canvas.create_image(enemy.pos[0], enemy.pos[1],
+								image=ImageTk.PhotoImage(app.enemyImg.rotate(enemy.rot)))
 
 		# Debug visualizations
 		# canvas.create_line(app.width / 2, 0, app.width / 2, app.height, fill="red")

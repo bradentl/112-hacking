@@ -28,7 +28,7 @@ class Board:
 	def initEnemies(self):
 		return set()
 
-	def isLegalMove(self, pos, dim=0):
+	def isLegalMove(self, pos, dim=(0,0)):
 		if(pos[0] < (self.dim[0] + (dim[0] / 2)) or pos[1] < (self.dim[0] + (dim[1] / 2)) or 
 		   pos[0] > (self.dim[1] - (dim[0] / 2)) or pos[1] > (self.dim[1] - (dim[1] / 2))):
 			return False
@@ -46,7 +46,6 @@ class Player:
 		self.health = 3
 		self.projs = set()
 		self.firingDelay = 0
-		# Implement targeting system
 		self.target = None
 
 	def move(self, x1, y1):
@@ -83,11 +82,17 @@ class Player:
 	def deductHealth(self):
 		self.health -= 1
 		return (self.health > 0)
+	
+	def toggleTarget(self, enemies=set(), cores=set()):
+		if(self.target):
+			self.target = None
+			return
+		self.determineTarget(enemies, cores)
 
 	def determineTarget(self, enemies=set(), cores=set()):
 		targets = list(cores if (len(enemies) == 0) else enemies)
 		# Toggles targeting
-		if(self.target or len(targets) == 0):
+		if(len(targets) == 0):
 			self.target = None
 			return
 
@@ -158,7 +163,12 @@ class Core:
 	def __init__(self, pos):
 		self.pos = pos
 		self.health = 5
+		# Determines pattern of fire
+		self.pattern = 1# random.randint(0,2)
 		self.projs = set()
+		# Angle of projectile fire
+		self.deg = 0
+		self.pType = True
 		self.firingDelay = 0
 	
 	def evade(self, pos=None):
@@ -198,23 +208,31 @@ class Core:
 		rot = ((-1 * (rot + 90)) if (b < 0) else (rot - 90)) % 360
 		return rot
 
-	def firingPattern(self, pattern, l, pPos=None, pType=True):
+	def firingPattern(self, l, pPos):
 		if(self.firingDelay > 0):
 			return
+		
+		pType = self.pType
 
-		match pattern:
+		match self.pattern:
 			case 1:
-				pass
+				for deg in range(self.deg, self.deg + 360, 60):
+					self.createProjectile(deg, l, pType)
+					pType = not pType
+				self.pType = not pType
+				self.deg += 10
+				self.firingDelay = 3
 			case 2:
 				deg = self.angleToPlayer(pPos)
-				self.createProjectile(deg - 20, l)
-				self.createProjectile(deg, l)
-				self.createProjectile(deg + 20, l)
+				for adj in range(-20, 21, 20):
+					self.pType = not self.pType
+					self.createProjectile(deg + adj, l, self.pType)
 				self.firingDelay = 3
 			case _:
 				for deg in range(0, 360, 45):
 					self.createProjectile(deg, l, pType)
 					pType = not pType
+				self.pType = not self.pType
 				self.firingDelay = 10
 
 class ShieldedCore(Core):
@@ -288,11 +306,14 @@ class Enemy:
 		# Law of Cosines angle calculation
 		rot = math.degrees(math.acos((a**2 + c**2 - b**2) / (2 * a * c)))
 		rot = ((-1 * (rot + 90)) if (b < 0) else (rot - 90)) % 360
+		
 		print(self.rot - rot)
-		if((self.rot - rot) < 0):
-			self.rot += 5
-		else:
-			self.rot -= 5
+		# Determines which direction to turn
+		neg = -1 if (self.rot - rot > 0) else 1
+		# If degree of difference in angle is reasonably small, turn at a smaller interval.
+		# This prevents shakiness and stabilizes visuals.
+		turn = 4 if (abs(self.rot - rot) > 2) else 1
+		self.rot += neg * turn
 	
 	def createProjectile(self):
 		# Values here are reduced by factor to slow projectiles down from standard speed
