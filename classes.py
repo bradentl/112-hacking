@@ -1,38 +1,63 @@
+import time
 import math
 import random
 
 class Board:
-	def __init__(self, dim, sCoreDim, gridL=50):
+	def __init__(self, dim, gridL=50):
 		# Since x=y, tuple contains x0 and x1 (or, y0 and y1)
 		self.dim = self.gameDimensions(dim[0])
-		# Is this correct grid implementation?
-		self.grid = [[None] * gridL for i in range(gridL)]
 		self.player = Player((dim[0] / 2, (4 * dim[1]) / 5))
-		self.cores = self.initCores(sCoreDim)
-		self.obstacles = set()
-		# Entities that can be destroyed
+		self.cores = self.initCores(dim)
+		self.blocks = {"block": set(), "dBlock": set(),"eBlock": set()}
 		self.enemies = self.initEnemies()
+		# 1 minute time limit
+		self.time = time.time() + 60
 	
 	def gameDimensions(self, l):
 		margin = l / 10
 		return (margin, l - margin)
-	
-	def determineGrid(self):
-		pass
 
 	def initCores(self, dim):
-		x = self.dim[0] + (dim / 2)
-		core = ShieldedCore((x, x))
+		core = ShieldedCore(dim)
 		return {core}
 	
 	def initEnemies(self):
 		return set()
 
 	def isLegalMove(self, pos, dim=(0,0)):
+		# Ensure object is within board dimensions
 		if(pos[0] < (self.dim[0] + (dim[0] / 2)) or pos[1] < (self.dim[0] + (dim[1] / 2)) or 
 		   pos[0] > (self.dim[1] - (dim[0] / 2)) or pos[1] > (self.dim[1] - (dim[1] / 2))):
 			return False
 		return True
+	
+	# After projectile moves, method is called to test for collisions.
+	# Method gathers all neccesary elements to test for collision and passes them to detectCollision()
+	def collisionManager(self, collider, exclusions=None):
+		# Following the separation axis theorem, determine possible dividing axes
+		dividingAxes = collider.collisionAxes()
+
+		for enemy in self.enemies:
+			self.detectCollision(enemy.projs)
+
+	def polygonIntersection(self):
+		pass
+
+	def circleIntersection(self, axes):
+		# If every axis intersects, both objects intersect.
+		if(len(axes) == 0):
+			return True
+		else:
+			pass
+
+	# Using the Separating Axis theorem...
+	#  - If two convex polygons are not intersecting, there exists a line that passes between them.
+	#  - Such a line only exists if one of the sides of one of the polygons forms such a line.
+	def detectCollision(self, collider, testEntities):
+		if(len(testEntities) == 0):
+			return False
+		else:
+			pass
 
 	def gameWon(self):
 		return (len(self.cores) == 0)
@@ -81,6 +106,7 @@ class Player:
 
 	def deductHealth(self):
 		self.health -= 1
+		# Returns boolean indicating whether player has lost
 		return (self.health > 0)
 	
 	def toggleTarget(self, enemies=set(), cores=set()):
@@ -90,16 +116,22 @@ class Player:
 		self.determineTarget(enemies, cores)
 
 	def determineTarget(self, enemies=set(), cores=set()):
+		# Only targets cores if there are no enemies to target
 		targets = list(cores if (len(enemies) == 0) else enemies)
-		# Toggles targeting
+
+		# If there's nothing to target, reset target value and return.
+		# (Technically there would always be something to target otherwise the game would end,
+		# but its best to err on the side of caution and prevent crashes.)
 		if(len(targets) == 0):
 			self.target = None
 			return
 
 		def distance(x1, y1):
 			return math.sqrt((self.pos[0] - x1)**2 + (self.pos[1] - y1)**2)
+		# Creates a list of the distance between player and each possible target
 		enemyDistance = [distance(e.pos[0], e.pos[1]) for e in targets]
-
+		# Since enemyDistance has same order as targets, determine shortest length and use
+		# the index to determine the appropriate element.
 		self.target = targets[enemyDistance.index(min(enemyDistance))]
 	
 	def autoOrient(self):
@@ -122,8 +154,10 @@ class Player:
 		# bottom triangle: 0.3/1.0
 		pass
 
-	def detectCollision(self, pos):
-		pass
+	# Behavior if collides with projectile
+	def collisionBehavior(self):
+		self.health -= 1
+
 
 class Projectile:
 	def __init__(self, pos, m, rot=0):
@@ -135,12 +169,29 @@ class Projectile:
 	def move(self):
 		x0, y0 = self.pos[0], self.pos[1]
 		self.pos = (x0 + self.m[1], y0 + self.m[0])
+		# Unlike Player.move(), there is no return since projectiles can leave the board.
+		# Additionally, when they hit obstacles they simply despawn.
+	
+	def isOffscreen(self, sDim):
+		if(self.pos[0] < 0 or self.pos[1] < 0 or 
+		   self.pos[0] > sDim[0] or self.pos[1] > sDim[1]):
+			return True
+		return False
 
 class PlayerProjectile(Projectile):
 	imgPath = "assets/playerProjectile.png"
 
 	def __init__(self, pos, m, rot):
 		super().__init__(pos, m, rot)
+	
+	# Rectangle should have two possible dividing axes.
+	def collisionAxes(self):
+		rot = (-self.rot % 90)
+		axes = set()
+		if(rot == 0):
+			# Values formatted in tuple as ((rise, run), b)
+			# Provides all necessary constants for y = mx + b
+			pass
 
 class OrangeProjectile(Projectile):
 	imgPath = "assets/oProjectile.png"
@@ -148,6 +199,7 @@ class OrangeProjectile(Projectile):
 	def __init__(self, pos, m):
 		super().__init__(pos, m)
 		self.health = 1
+		# Longer lifespan since they move slower
 		self.lifespan = self.lifespan * 2
 
 class PurpleProjectile(Projectile):
@@ -160,23 +212,34 @@ class PurpleProjectile(Projectile):
 class Core:
 	imgPath = "assets/core.png"
 
-	def __init__(self, pos):
-		self.pos = pos
+	def __init__(self, bDim):
+		self.pattern = random.randint(0,2)
+		self.pos = self.posFromPattern(bDim)
 		self.health = 5
-		# Determines pattern of fire
-		self.pattern = 1# random.randint(0,2)
 		self.projs = set()
 		# Angle of projectile fire
 		self.deg = 0
 		self.pType = True
 		self.firingDelay = 0
 	
-	def evade(self, pos=None):
+	def posFromPattern(self, bDim):
+		match self.pattern:
+			case _: return (bDim[0] / 2, bDim[1] / 2)
+	
+	def evade(self, pPos, pos=None):
 		if(not pos):
 			pos = self.pos
-		# backtracking function finding furthest single legal move away from block
+		# Backtracking function determining furthest single legal move away from block
 		# runs each "turn" until is safely set distance apart
-		pass
+		d = math.sqrt((pos[0] - pPos[0])**2 + (pos[1] - pPos[1])**2)
+		safeDistance = 0 # safe distance should change depending on scale
+		if(d > safeDistance):
+			# Continue typical movement pattern
+			# return functionForTypicalMovement()
+			pass
+		else:
+			# recursive backtracking
+			pass
 
 	def createProjectile(self, deg, l, pType=True):
 		# Define slope from angle
@@ -187,7 +250,7 @@ class Core:
 		# vy is negative since canvas y-direction is inverted from standard Cartesian plane
 		self.m = (-vy, vx)
 		# Values here are reduced by factor to slow projectiles down from standard speed
-		m = (self.m[0] / 2.5, self.m[1] / 2.5)
+		m = (self.m[0] / 3, self.m[1] / 3)
 		# Determines which type of projectile to add
 		proj = OrangeProjectile(self.pos, m) if pType else PurpleProjectile(self.pos, m)
 		self.projs.add(proj)
@@ -201,8 +264,7 @@ class Core:
 		c = math.sqrt(a**2 + b**2)
 		# Prevents division by zero
 		if(a == 0):
-			self.rot = 180 if (b < 0) else 0
-			return
+			return 180 if (b < 0) else 0
 		# Law of Cosines angle calculation
 		rot = math.degrees(math.acos((a**2 + c**2 - b**2) / (2 * a * c)))
 		rot = ((-1 * (rot + 90)) if (b < 0) else (rot - 90)) % 360
@@ -214,6 +276,7 @@ class Core:
 		
 		pType = self.pType
 
+		# Various firing patterns for variety
 		match self.pattern:
 			case 1:
 				for deg in range(self.deg, self.deg + 360, 60):
@@ -221,19 +284,22 @@ class Core:
 					pType = not pType
 				self.pType = not pType
 				self.deg += 10
-				self.firingDelay = 3
+				self.firingDelay = 7
 			case 2:
 				deg = self.angleToPlayer(pPos)
 				for adj in range(-20, 21, 20):
 					self.pType = not self.pType
 					self.createProjectile(deg + adj, l, self.pType)
-				self.firingDelay = 3
+				self.firingDelay = 8
 			case _:
 				for deg in range(0, 360, 45):
 					self.createProjectile(deg, l, pType)
 					pType = not pType
 				self.pType = not self.pType
 				self.firingDelay = 10
+	
+	def collisionBehavior(self):
+		pass
 
 class ShieldedCore(Core):
 	imgPath = "assets/sCore.png"
@@ -244,6 +310,11 @@ class ShieldedCore(Core):
 
 	def destroyShield(self):
 		self.shield = False
+	
+	def collisionBehavior(self):
+		if(not self.shield):
+			return super().collisionBehavior()
+		pass	
 
 class Block:
 	imgPath = "assets/block.png"
@@ -306,18 +377,18 @@ class Enemy:
 		# Law of Cosines angle calculation
 		rot = math.degrees(math.acos((a**2 + c**2 - b**2) / (2 * a * c)))
 		rot = ((-1 * (rot + 90)) if (b < 0) else (rot - 90)) % 360
-		
-		print(self.rot - rot)
 		# Determines which direction to turn
 		neg = -1 if (self.rot - rot > 0) else 1
+		# Corrects 180˚-360˚ angles
+		neg = neg * (-1 if (abs(self.rot - rot) > 180) else 1)
 		# If degree of difference in angle is reasonably small, turn at a smaller interval.
 		# This prevents shakiness and stabilizes visuals.
 		turn = 4 if (abs(self.rot - rot) > 2) else 1
-		self.rot += neg * turn
+		self.rot = (self.rot + (neg * turn)) % 360
 	
 	def createProjectile(self):
 		# Values here are reduced by factor to slow projectiles down from standard speed
-		m = (self.m[0] / 2.5, self.m[1] / 2.5)
+		m = (self.m[0] / 3, self.m[1] / 3)
 		# Determines which type of projectile to add
 		proj = OrangeProjectile(self.pos, m)
 		self.projs.add(proj)
@@ -327,6 +398,3 @@ class Enemy:
 		if(self.firingDelay > 0):
 			return
 		self.createProjectile()
-	
-	def firingPattern(self, patternType):
-		pass
