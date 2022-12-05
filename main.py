@@ -8,19 +8,21 @@ res = (500, 500)
 
 # This function hardcodes for simpler debugging
 def debug(app):
-	app.board = Board((app.width, app.height), app.sCoreImg.width)
+	app.board = Board(app, 3)
 
 def createEnemy(app):
 	pos = (random.randint(app.board.dim[0] + app.enemyImg.width, app.board.dim[1] - app.enemyImg.width),
 		   random.randint(app.board.dim[0] + app.enemyImg.height, app.board.dim[1] - app.enemyImg.height))
-	enemy = Enemy(pos)
+	dim = (app.enemyImg.width, app.enemyImg.height)
+	enemy = Enemy(pos, dim)
 	app.board.enemies.add(enemy)
 
 def createBlock(app):
 	pos = (random.randint(app.board.dim[0] + app.blockImg.width, app.board.dim[1] - app.blockImg.width),
 		   random.randint(app.board.dim[0] + app.blockImg.height, app.board.dim[1] - app.blockImg.height))
+	dim = (app.blockImg.width, app.blockImg.height)
 	# This seems pretty inefficient, but allowed since only for debugging
-	blockObject = {1:Block(pos),2:DestructableBlock(pos),3:EnemyBlock(pos)}
+	blockObject = {1:Block(pos, dim),2:DestructableBlock(pos, dim),3:EnemyBlock(pos, dim)}
 	block = blockObject[random.randint(1,3)]
 	blockType = {Block:"block",DestructableBlock:"dBlock",EnemyBlock:"eBlock"}
 	app.board.blocks[blockType[type(block)]].add(block)
@@ -28,13 +30,15 @@ def createBlock(app):
 
 def appStarted(app):
 	app.board = None
-	app.gameOver = False
+	app.state = "Active"
 	app.pause = False
 	app.timeConstant = 0
-	initSprites(app, scale=7/24)
+	initSprites(app)
 	debug(app) # Remember to remove in final product
 
-def initSprites(app, scale=1/3):
+def initSprites(app):
+	# Ensures that block dimensions are 25px
+	scale = 25 / app.loadImage("assets/block.png").height
 	app.playerImg = app.scaleImage(app.loadImage("assets/player.png"), scale)
 	app.projImg = app.scaleImage(app.loadImage("assets/playerProjectile.png"), scale)
 	app.coreImg = app.scaleImage(app.loadImage("assets/core.png"), scale)
@@ -69,7 +73,7 @@ def timerFired(app):
 		app.board.player.firingDelay -= 1
 	# Iterates over a copied set to allow removal of elements
 	for proj in app.board.player.projs.copy():
-		if(proj.lifespan <= 0):
+		if(proj.lifespan <= 0 or proj.action == "despawn"):
 			# Is a __hash__ method necessary?
 			app.board.player.projs.remove(proj)
 		else:
@@ -81,19 +85,28 @@ def timerFired(app):
 			app.board.collisionManager(proj)
 			proj.lifespan -= 1
 
-	for core in app.board.cores:
+	for core in app.board.cores.copy():
+		if(core.health <= 0):
+			app.board.cores.remove(core)
+
+		if(len(app.board.cores) == 0):
+			app.state = "Win"
+			app.board = None
+			return
+
 		if(core.firingDelay > 0):
 			core.firingDelay -= 1
 		
 		core.evade(app.board.player.pos)
 
-		# if(len(app.board.enemies) == 0):
-		#	core.destroyShield()
+		if(len(app.board.enemies) == 0):
+			core.destroyShield()
 		
-		core.firingPattern(app.coreImg.height, app.board.player.pos)
+		# Shouldn't matter whether oProjImg or pProjImg since both have identical dimensions
+		core.firingPattern(app.board.player.pos, (app.oProjImg.width, app.oProjImg.height))
 
 		for proj in core.projs.copy():
-			if(proj.lifespan <= 0):
+			if(proj.lifespan <= 0 or proj.action == "despawn"):
 				core.projs.remove(proj)
 			else:
 				proj.move()
@@ -103,17 +116,22 @@ def timerFired(app):
 					continue
 				proj.lifespan -= 1
 
-	for enemy in app.board.enemies:
+	for enemy in app.board.enemies.copy():
+		if(enemy.action == "despawn"):
+			app.board.enemies.remove(enemy)
+			continue
+
 		if(enemy.firingDelay > 0):
 			enemy.firingDelay -= 1
 
-		pos = enemy.follow(app.board.player.pos, app.enemyImg.height)
-		if(not app.board.isLegalMove(enemy.pos, (app.enemyImg.width, app.enemyImg.height))):
+		pos = enemy.follow(app.board.player.pos)
+		if(not app.board.isLegalMove(enemy)):
 			enemy.pos = pos
-		enemy.autoFire()
+		enemy.autoFire((app.oProjImg.width, app.oProjImg.height))
 
 		for proj in enemy.projs.copy():
-			if(proj.lifespan <= 0):
+			if(proj.lifespan <= 0 or proj.action == "despawn"):
+				print("despawning")
 				enemy.projs.remove(proj)
 			else:
 				proj.move()
@@ -121,14 +139,10 @@ def timerFired(app):
 					enemy.projs.remove(proj)
 					continue
 				proj.lifespan -= 1
-				# app.board.detectCollision(proj, [app.board.enemies])
 	
-	if(app.board.time - time.time() <= 0):
-		app.gameOver = True
+	if(app.board.time - time.time() <= 0 or app.board.player.health <= 0):
+		app.state = "Lose"
 		app.board = None
-
-def detectCollision(app, piece):
-	pass
 
 def keyPressed(app, event):
 	# If board is inactive, skip board-related commands
@@ -138,7 +152,7 @@ def keyPressed(app, event):
 	match event.key:
 		case "r": 		app.board.player.rotate(-10)
 		case "e": 		app.board.player.rotate(+10)
-		case "Space":	app.board.player.createProjectile(app.playerImg.height)
+		case "Space":	app.board.player.createProjectile((app.projImg.width, app.projImg.height))
 		case "t":		app.board.player.toggleTarget(app.board.enemies, app.board.cores)
 		case "p":		app.pause = not app.pause
 		# Debug keys
@@ -154,8 +168,14 @@ def keyPressed(app, event):
 			case "Right":	return app.board.player.move(+5, 0)
 	
 	pos = playerMovement()
-	if(not app.board.isLegalMove(app.board.player.pos, (app.playerImg.width, app.playerImg.height))):
+	if(not app.board.isLegalMove(app.board.player)):
 		app.board.player.pos = pos
+	else:
+		app.board.collisionManager(app.board.player)
+		if(app.board.player.action == "undo"):
+			app.board.player.pos = pos
+			# Reset waitng action
+			app.board.player.action = None
 
 def redrawAll(app, canvas):
 	# Drawing background
@@ -170,6 +190,7 @@ def redrawAll(app, canvas):
 		for proj in app.board.player.projs:
 			canvas.create_image(proj.pos[0], proj.pos[1],
 							image=ImageTk.PhotoImage(app.projImg.rotate(proj.rot, expand=True)))
+
 		# Drawing player
 		canvas.create_image(app.board.player.pos[0], app.board.player.pos[1],
 							image=ImageTk.PhotoImage(app.playerImg.rotate(app.board.player.rot, expand=True)))
@@ -211,9 +232,12 @@ def redrawAll(app, canvas):
 		canvas.create_text(app.board.player.pos[0] + app.playerImg.width, app.board.player.pos[1] - (app.playerImg.height / 2),
 						   text='%.2f'%(app.board.time - time.time()), font="Arial 10 bold", fill="black")
 	
-	if(app.gameOver):
+	if(app.state == "Lose"):
 		canvas.create_text(app.width / 2, app.height / 2,
 						   text="GAME OVER", font="Arial 30 bold", fill="black")
+	elif(app.state == "Win"):
+		canvas.create_text(app.width / 2, app.height / 2,
+						   text="YOU WIN", font="Arial 30 bold", fill="black")
 
 def playGame():
 	runApp(width=res[0], height=res[1])
