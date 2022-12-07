@@ -15,17 +15,41 @@ def menu_sizeChanged(app):
 
 def menu_redrawAll(app, canvas):
 	canvas.create_rectangle(0, 0, app.width, app.height, fill="gray")
-	canvas.create_text(app.width / 2, 150, text="Menu",
+	canvas.create_text((app.width / 2) - 25, app.height / 8, anchor="e", text="Hacking",
 					   font="Arial 26 bold", fill="black")
-	# canvas.create_image(app.width / 2, ((19 * app.height) / 20) - (app.keyboardImg.height / 2),
-	# 					  image=ImageTk.PhotoImage(app.keyboardImg))
-	# top = app.height - ((app.height / 20) + (app.keyboardImg.height))
-	# canvas.create_rectangle(0, 0, app.width, top, fill="red")
-	# canvas.create_text(app.width / 2, app.height / 2, text="Space",
-	# 				   font="Courier 26 bold", fill="black")
+	canvas.create_text((app.width / 2) + 25, app.height / 8, anchor="w", text="112",
+					   font="Arial 26 bold", fill="black")
+	canvas.create_text(app.width / 2, (9 * app.height) / 10, text="Click anywhere to begin.",
+					   font="Arial 26 italic", fill="black")
+	canvas.create_image(app.menuPlayer.pos[0], app.menuPlayer.pos[1],
+								image=ImageTk.PhotoImage(app.playerImg.rotate(app.menuPlayer.rot, expand=True)))
+
+def menu_keyPressed(app, event):
+	match event.key:
+		case "Up":		app.menuPlayer.movements["Up"] = -1
+		case "Down": 	app.menuPlayer.movements["Down"] = +1
+		case "Left":	app.menuPlayer.movements["Left"] = -1
+		case "Right":	app.menuPlayer.movements["Right"] = +1
+		case "r": 		app.menuPlayer.spin = 1
+		case "f": 		app.menuPlayer.spin = -1
+
+def menu_keyReleased(app, event):
+	match event.key:
+		case "Up":		app.menuPlayer.movements["Up"] = 0
+		case "Down": 	app.menuPlayer.movements["Down"] = 0
+		case "Left":	app.menuPlayer.movements["Left"] = 0
+		case "Right":	app.menuPlayer.movements["Right"] = 0
+		case "r": 		app.menuPlayer.spin = False
+		case "f": 		app.menuPlayer.spin = False
 
 def menu_mousePressed(app, event):
 	menu_changeMode(app, "game")
+
+def menu_timerFired(app):
+	app.menuPlayer.move()
+	
+	if(app.menuPlayer.spin):
+		app.menuPlayer.autoRotate()
 ##########################################
 
 ##########################################
@@ -122,8 +146,14 @@ def game_timerFired(app):
 			if(proj.isOffscreen((app.width, app.height))):
 				app.board.player.projs.remove(proj)
 				continue
-			app.board.collisionManager(proj)
+			app.board.collisionManager(proj, {app.board.player})
 			proj.lifespan -= 1
+
+	for block in app.board.blocks.copy():
+		if(type(block) != DestructibleBlock):
+			continue
+		if(block.health <= 0):
+				app.board.blocks.remove(block)
 
 	# Slight delay to enemy functions for QoL
 	if(app.timeConstant > 0):
@@ -155,7 +185,7 @@ def game_timerFired(app):
 					core.projs.remove(proj)
 				else:
 					proj.move()
-					app.board.collisionManager(proj)
+					app.board.collisionManager(proj, app.board.cores | app.board.enemies | app.board.projs)
 					# Performs removal foremost to prevent unnecessary operations
 					if(proj.isOffscreen((app.width, app.height))):
 						core.projs.remove(proj)
@@ -175,7 +205,7 @@ def game_timerFired(app):
 			if(not app.board.isLegalMove(enemy)):
 				enemy.pos = pos
 			else:
-				app.board.collisionManager(enemy)
+				app.board.collisionManager(enemy, app.board.projs)
 				if(enemy.action == "undo"):
 					enemy.pos = pos
 					enemy.action = None
@@ -186,7 +216,7 @@ def game_timerFired(app):
 					enemy.projs.remove(proj)
 				else:
 					proj.move()
-					app.board.collisionManager(proj)
+					app.board.collisionManager(proj, app.board.enemies | app.board.cores | app.board.projs)
 					if(proj.isOffscreen((app.width, app.height))):
 						enemy.projs.remove(proj)
 						continue
@@ -263,9 +293,14 @@ def game_redrawAll(app, canvas):
 		
 		# Drawing blocks
 		for block in app.board.blocks:
+			if(hasattr(block, "hurt") and block.hurt):
+				canvas.create_image(block.pos[0], block.pos[1], image=ImageTk.PhotoImage(app.hurtDBlockImg))
+				block.hurt = (block.hurt + 1) % 2
+				continue
+
 			def blockImg(blockType):
 				match blockType:
-					case DestructableBlock(): return app.dBlockImg
+					case DestructibleBlock(): return app.dBlockImg
 					case EnemyBlock(): return app.eBlockImg
 					case Block(): return app.blockImg
 			
@@ -319,6 +354,7 @@ def appStarted(app):
 	app.board = None
 	app.pause = False
 	app.mode = "menu"
+	app.menuPlayer = Player((app.width / 2, app.height / 8), (app.playerImg.width, app.playerImg.height))
 	app.menuSfx = Audio("sfx/menuOpen.wav")
 
 def initSprites(app):
@@ -335,6 +371,7 @@ def initSprites(app):
 	app.pProjImg = app.scaleImage(app.loadImage("assets/pProjectile.png"), scale)
 	app.blockImg = app.scaleImage(app.loadImage("assets/block.png"), scale)
 	app.dBlockImg = app.scaleImage(app.loadImage("assets/dBlock.png"), scale)
+	app.hurtDBlockImg = app.scaleImage(app.loadImage("assets/dBlock_hurt.png"), scale)
 	app.eBlockImg = app.scaleImage(app.loadImage("assets/eBlock.png"), scale)
 
 res = (500, 500)

@@ -44,7 +44,7 @@ class Audio:
 			data = self.wf.readframes(CHUNK)
 
 class Board:
-	def __init__(self, app, difficulty=5):
+	def __init__(self, app):
 		# Since x=y, tuple contains x0 and x1 (or, y0 and y1)
 		self.dim = self.gameDimensions(app.width)
 		self.player = None
@@ -77,7 +77,6 @@ class Board:
 		for freq in ratio:
 			randGrid[(prev[1] <= randGrid) & (randGrid < (prev[1] + ratio[freq]))] = prev[0]
 			prev = (prev[0] + 1, prev[1] + ratio[freq])
-		print(f'Current Board:\n{randGrid}')
 
 		def emptyAdjacents(index, testedIndices=set()):
 			foundIndices = set()
@@ -108,22 +107,27 @@ class Board:
 			else:
 				return foundIndices
 
+		# randGrid[0][0] = 2
+		# randGrid[1][0] = 1
+		# randGrid[0][1] = 1
+		# randGrid[1][1] = 1
 		# Additional grid variable neccesary since final board layout differs from randGrid,
 		# either by exception or addition of elements.
 		grid = np.zeros(shape=(l,l))
 
+		# Converts index value to coordinate position
 		def indexToCoord(index):
 			row, col = index[0], index[1]
-			# numbers?
 			x, y = 0.5 * ((50 * col) + 25), 0.5 * ((50 * row) + 25)
 			return (x + self.dim[0], y + self.dim[0])
 
-		def entityAssignment(indices):
+		def entityAssignment(indices, entityNum):
 			if(len(indices) == 0):
 				return []
 			else:
+				grid[indices[0][0]][indices[0][1]] = entityNum
 				pos = indexToCoord((indices[0][0], indices[0][1]))
-				return [pos] + entityAssignment((indices[1:]))
+				return [pos] + entityAssignment(indices[1:], entityNum)
 
 		# First array represents the row indices; second array represents column indices.
 		# https://numpy.org/doc/stable/reference/generated/numpy.nonzero.html
@@ -132,35 +136,157 @@ class Board:
 			adjacents = emptyAdjacents((blockIndices[0][i], blockIndices[1][i]))
 			if(not adjacents):
 				continue
-			# 1:3 probability of EnemyBlock
+			# 1:3 probability of EnemyBlock, 1:3 probability of DestructibleBlock
 			blockType = random.randint(0, 3)
-			for pos in entityAssignment(list(adjacents)):
+			for pos in entityAssignment(list(adjacents), 1):
 				if(blockType == 0):
 					self.blocks.add(EnemyBlock(pos, (app.blockImg.width, app.blockImg.height)))
+				elif(blockType == 1):
+					self.blocks.add(DestructibleBlock(pos, (app.blockImg.width, app.blockImg.height)))
 				else:
 					self.blocks.add(Block(pos, (app.blockImg.width, app.blockImg.height)))
-				# grid[blockIndices[0][i]][blockIndices[1][i]] = 1
+
+		# def findEdgeSquares():
+		# 	edgeSquares =  ([(0, i) for i in range(len(grid)) if grid[0][i] == 0]
+		# 				  + [(len(grid) - 1, i) for i in range(len(grid)) if grid[len(grid) - 1, i] == 0]
+		# 				  + [(i, 0) for i in range(len(grid)) if grid[i][0] == 0]
+		# 				  + [(i, len(grid) - 1) for i in range(len(grid)) if grid[i][len(grid) - 1] == 0]
+		# 	)
+
+		# def isTrapped(iPos, edgeSquares):
+		# 	for targetPos in edgeSquares:
+		# 		if(iPos == targetPos):
+		# 			continue
+		# 		possible = pathSearch(iPos, targetPos, set())
+		# 		if(not possible):
+		# 			# print(grid)
+		# 			# print(possible)
+		# 			print(iPos, targetPos)
+		# 			return True
+		# 	return False
+		
+		# def pathSearch(iPos, targetPos, pastMoves, depth=0):
+		# 	pastMoves.add(iPos)
+		# 	moves = possibleMoves(iPos)
+		# 	for move in moves:
+		# 		# print(f'{"*" * depth}{move}\t{targetPos}')
+		# 		if(move in pastMoves or grid[move[0]][move[1]] != 0):
+		# 			continue
+		# 		if(move == targetPos):
+		# 			return True
+				
+		# 		result = pathSearch(move, targetPos, pastMoves, depth=depth + 1)
+		# 		if(result is True):
+		# 			return True
+		# 	return False
+		
+		# def possibleMoves(iPos):
+		# 	bound = lambda i : max(0, min(i, l - 1))
+		# 	moves = {(iPos[0], bound(iPos[1] - 1)),
+		# 			 (iPos[0], bound(iPos[1] + 1)),
+		# 			 (bound(iPos[0] - 1), iPos[1]),
+		# 			 (bound(iPos[0] + 1), iPos[1]),
+		# 			 (bound(iPos[0] + 1), bound(iPos[1] - 1)),
+		# 			 (bound(iPos[0] + 1), bound(iPos[1] + 1)),
+		# 			 (bound(iPos[0] - 1), bound(iPos[1] - 1)),
+		# 			 (bound(iPos[0] - 1), bound(iPos[1] + 1))
+		# 	}
+		# 	return moves
+		
+		# def findNewPos():
+		# 	enemyIndices = np.nonzero(randGrid == 0)
+		# 	print(grid)
+		# 	def randIndex():
+		# 		return random.randint(0, len(enemyIndices[0]) - 1)
+		# 	newPos = (enemyIndices[0][randIndex()], enemyIndices[1][randIndex()])
+		# 	print(f'np: {newPos}')
+		# 	if(isTrapped(newPos, edgeSquares)):
+		# 		return findNewPos()
+		# 	return newPos
 
 		enemyIndices = np.nonzero(randGrid == 2)
 		for i in range(len(enemyIndices[0])):
 			enemyIndices = [(enemyIndices[0][i], enemyIndices[1][i]) for i in range(len(enemyIndices[0]))]
-			enemyCoords = entityAssignment(enemyIndices)
+			# edgeSquares = findEdgeSquares()
+			# for index in enemyIndices:
+			# 	if(isTrapped(index, edgeSquares)):
+			# 		index = findNewPos()
+			enemyCoords = entityAssignment(enemyIndices, 2)
 			for pos in enemyCoords:
 				self.enemies.add(Enemy(pos, (app.enemyImg.width, app.enemyImg.height)))
-				# grid[enemyIndices[0][i]][enemyIndices[1][i]] = 1
 
-		def determinePosition(preference=None):
-			options = np.nonzero(randGrid == 0)
-			# If none provided, selects a random empty square.
-			if(not preference):
-				i = random.randint(0, len(options[0]))
+		# Recursive function determining best position from random sampling
+		def determinePosition(pref=None, depth=0, pPos=None):
+			# Exits after fifty tests
+			if(depth >= 50):
+				return pref
+
+			# Chooses a random empty position on the board
+			def randomPosition():
+				options = np.nonzero(grid == 0)
+				i = random.randint(0, len(options[0]) - 1)
 				return (options[0][i], options[1][i])
 
-		pos = indexToCoord(determinePosition())
+			# If none provided, selects a random empty square.
+			if(not pref):
+				iPos = randomPosition()
+				return determinePosition(iPos, depth + 1, pPos)
+
+			# First preference is given to positions that have empty adjacencies
+			def emptyAdjacents(iPos):
+				bound = lambda i : max(0, min(i, l - 1))
+				squares = {(iPos[0], bound(iPos[1] - 1)),
+						   (iPos[0], bound(iPos[1] + 1)),
+						   (bound(iPos[0] - 1), iPos[1]),
+						   (bound(iPos[0] + 1), iPos[1]),
+						   (bound(iPos[0] + 1), bound(iPos[1] - 1)),
+						   (bound(iPos[0] + 1), bound(iPos[1] + 1)),
+						   (bound(iPos[0] - 1), bound(iPos[1] - 1)),
+						   (bound(iPos[0] - 1), bound(iPos[1] + 1))
+				}
+				if(iPos in squares):
+					squares.remove(iPos)
+				for square in squares:
+					if(grid[square[0]][square[1]] != 0):
+						return False
+				return True
+			
+			currPos = randomPosition()
+
+			ePref, eCurr = emptyAdjacents(pref), emptyAdjacents(currPos)
+			# Only runs if one of them has empty adjacencies and the other doesn't
+			if(not ePref and ePref ^ eCurr):
+					return determinePosition(pref if ePref else currPos, depth + 1, pPos)
+			
+			def distance(x1, y1, x2, y2):
+				return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+			
+			# For cores, second preference is given to position furthest away from player
+			if(pPos):
+				dPref = distance(pPos[0], pPos[1], pref[0], pref[1])
+				dCurr = distance(pPos[0], pPos[1], currPos[0], currPos[1])
+				return determinePosition(pref if (dPref > dCurr) else currPos, depth + 1, pPos)
+
+			# For player, second preference is given to position furthest away from enemies
+			enemyIndices = np.nonzero(grid == 2)
+			dPref, dCurr = float("+inf"), float("+inf")
+			for i in range(len(enemyIndices[0])):
+				dPref = min(dPref, distance(enemyIndices[0][i], enemyIndices[1][i], pref[0], pref[1]))
+				dCurr = min(dCurr, distance(enemyIndices[0][i], enemyIndices[1][i], currPos[0], currPos[1]))
+			return determinePosition(pref if (dPref > dCurr) else currPos, depth + 1, pPos)
+		
+		i = determinePosition()
+		# Adds player position to grid
+		grid[i[0]][i[1]] = 3
+		pos = indexToCoord(i)
 		self.player = Player(pos, (app.playerImg.width, app.playerImg.height))
 
-		pos = indexToCoord(determinePosition())
+		i = determinePosition(pPos=pos)
+		# Adds core position to grid
+		grid[i[0]][i[1]] = 4
+		pos = indexToCoord(i)
 		self.cores.add(ShieldedCore(pos, (app.coreImg.width, app.coreImg.height)))
+		print(f'Current Board:\n{grid}')
 
 	def initBgm(self):
 		# Selects a random audio file from the bgm folder.
@@ -182,13 +308,20 @@ class Board:
 	def collisionManager(self, collider, exclusions=set()):
 		# Following the separation axis theorem, determine possible dividing axes
 		poly1 = collider.vertices()
-		testEntities = self.cores | self.enemies | self.projs
+		testEntities = self.cores | self.enemies | self.projs | {self.player}
+		# Remove specified exclusions (prevents wasteful testing)
+		# https://stackoverflow.com/questions/9056833/python-remove-set-from-set
+		testEntities -= exclusions
+		# Removes colliding entity (prevents collison tests against self)
+		if(collider in testEntities):
+			testEntities.remove(collider)
 
 		for block in self.blocks:
 			if(self.detectCollision(poly1, block.vertices())):
 				collider.collisionBehavior(block)
+				if(type(block) == DestructibleBlock):
+					block.collisionBehavior(collider)
 		
-		testEntities = self.cores | self.enemies | self.projs
 		for entity in testEntities:
 			if(self.detectCollision(poly1, entity.vertices())):
 				collider.collisionBehavior(entity)
@@ -198,29 +331,6 @@ class Board:
 					if(self.detectCollision(poly1, proj.vertices())):
 						collider.collisionBehavior(proj)
 						proj.collisionBehavior(collider)
-		
-		# for core in self.cores:
-		# 	if(self.detectCollision(poly1, core.vertices())):
-		# 		collider.collisionBehavior(core)
-		# 		core.collisionBehavior(collider)
-		# 	for proj in core.projs:
-		# 		if(self.detectCollision(poly1, proj.vertices())):
-		# 			collider.collisionBehavior(proj)
-		# 			proj.collisionBehavior(collider)
-
-		# for enemy in self.enemies:
-		# 	if(self.detectCollision(poly1, enemy.vertices())):
-		# 		collider.collisionBehavior(enemy)
-		# 		enemy.collisionBehavior(collider)
-		# 	for proj in enemy.projs:
-		# 		if(self.detectCollision(poly1, proj.vertices())):
-		# 			collider.collisionBehavior(proj)
-		# 			proj.collisionBehavior(collider)
-
-		# for proj in self.projs:
-		# 	if(self.detectCollision(poly1, proj.vertices())):
-		# 		collider.collisionBehavior(proj)
-		# 		proj.collisionBehavior(collider)
 
 	# Using the Separating Axis theorem...
 	#	- Two convex objects do not overlap if there exists an axis onto which the two objects' projections do not overlap.
@@ -295,7 +405,6 @@ class Player:
 			case EnemyBlock():
 				self.deductHealth()
 				self.action.add("undo")
-				print(self.action)
 			case _:						self.action.add("undo")
 	
 	def vertices(self):
@@ -638,12 +747,21 @@ class Block:
 		]
 		return vertices
 
-class DestructableBlock(Block):
+class DestructibleBlock(Block):
 	imgPath = "assets/dBlock.png"
 
 	def __init__(self, pos, dim):
 		super().__init__(pos, dim)
-		self.health = 5 # arbitrary number
+		self.health = 5
+		self.hurt = 0
+	
+	def collisionBehavior(self, collider):
+		match collider:
+			case PlayerProjectile():	self.deductHealth()
+	
+	def deductHealth(self):
+		self.health -= 1
+		self.hurt = 1
 
 class EnemyBlock(Block):
 	imgPath = "assets/eBlock.png"
@@ -658,8 +776,6 @@ class Enemy:
 		self.pos = pos
 		self.dim = dim
 		self.rot = 180
-		# Is a variable necessary? They are defeated after a single projectile collision.
-		self.health = 1
 		self.m = (0, 0)
 		self.projs = set()
 		self.firingDelay = 0
