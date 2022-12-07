@@ -7,6 +7,12 @@ def sizeChanged(app):
 
 ##########################################
 # Menu Mode
+def menu_changeMode(app, mode):
+	app.board = Board(app)
+	app.timeConstant = 0
+	app.menuSfx.active = False
+	app.mode = mode
+
 def menu_redrawAll(app, canvas):
 	canvas.create_rectangle(0, 0, app.width, app.height, fill="gray")
 	canvas.create_text(app.width / 2, 150, text='Menu',
@@ -19,20 +25,20 @@ def menu_redrawAll(app, canvas):
 	# 				   font="Courier 26 bold", fill='black')
 
 def menu_mousePressed(app, event):
-	app.mode = 'game'
-	app.board = Board(app)
+	menu_changeMode(app, "game")
 ##########################################
 
 ##########################################
 # Game Mode
-def game_appStarted(app):
-	print("hey")
+def game_changeMode(app, mode):
+	app.board.bgm.active = False
+	for sfx in app.board.sfx:
+		sfx.active = False
+	app.mode = mode
 
 def game_timerFired(app):
 	if(app.pause):
 		return
-	# Useful for activating code at intervals of time constant
-	app.timeConstant += 1
 
 	# Runs every three seconds to preserve efficiency
 	if(app.board.player.target and app.timeConstant % 3 == 0):
@@ -45,9 +51,12 @@ def game_timerFired(app):
 		app.board.player.pos = pos
 	else:
 		app.board.collisionManager(app.board.player)
-		if(app.board.player.action == "undo"):
-			app.board.player.pos = pos
+		if(app.board.player.action == "hurt"):
+			app.board.sfx.add(Audio("sfx/pHit.wav"))
 			# Reset action
+			app.board.player.action = None
+		elif(app.board.player.action == "undo"):
+			app.board.player.pos = pos
 			app.board.player.action = None
 	
 	# Logic works even though player.spin can hold integer values since
@@ -55,7 +64,8 @@ def game_timerFired(app):
 	if(app.board.player.spin):
 		app.board.player.autoRotate()
 	if(app.board.player.fire):
-		app.board.player.autoFire((app.projImg.width, app.projImg.height))
+		if(app.board.player.autoFire((app.projImg.width, app.projImg.height))):
+			app.board.sfx.add(Audio("sfx/pShoot.wav"))
 	
 	if(app.board.player.firingDelay > 0):
 		app.board.player.firingDelay -= 1
@@ -80,7 +90,9 @@ def game_timerFired(app):
 				app.board.cores.remove(core)
 
 			if(len(app.board.cores) == 0):
-				app.mode = "win"
+				game_changeMode(app, "win")
+				# Deliberately excluded from sfx set such that audio continues after scene change.
+				Audio("sfx/cExplode.wav")
 				return
 
 			if(core.firingDelay > 0):
@@ -88,8 +100,10 @@ def game_timerFired(app):
 		
 			core.evade(app.board.player.pos)
 
-			if(len(app.board.enemies) == 0):
-				core.destroyShield()
+			if(core.shield and len(app.board.enemies) == 0):
+				core.shield = False
+				if(app.timeConstant > 0):
+					app.board.sfx.add(Audio("sfx/shieldBreak.wav"))
 		
 			# Shouldn't matter whether oProjImg or pProjImg since both have identical dimensions
 			core.firingPattern(app.board.player.pos, (app.oProjImg.width, app.oProjImg.height))
@@ -128,9 +142,25 @@ def game_timerFired(app):
 						enemy.projs.remove(proj)
 						continue
 					proj.lifespan -= 1
+		
+		for proj in app.board.projs.copy():
+			if(proj.lifespan <= 0 or proj.action == "despawn"):
+				app.board.projs.remove(proj)
+			else:
+				proj.move()
+				if(proj.isOffscreen((app.width, app.height))):
+					app.board.projs.remove(proj)
+					continue
+				proj.lifespan -= 1
 	
 	if(app.board.time - time.time() <= 0 or app.board.player.health <= 0):
-		app.mode = "lose"
+		game_changeMode(app, "lose")
+		# Deliberately excluded from sfx set such that audio continues after scene change.
+		Audio("sfx/pExplode.wav")
+		return
+	
+	# Useful for activating code at intervals of time constant
+	app.timeConstant += 1
 
 def game_keyPressed(app, event):
 	match event.key:
@@ -235,32 +265,40 @@ def game_redrawAll(app, canvas):
 
 ##########################################
 # Win Mode
+def win_changeMode(app, mode):
+	app.menuSfx = Audio("sfx/menuOpen.wav")
+	app.mode = mode
+
 def win_redrawAll(app, canvas):
 	canvas.create_rectangle(0, 0, app.width, app.height, fill="gray")
 	canvas.create_text(app.width / 2, app.height / 2,
-					   text="YOU WIN", font="Arial 30 bold", fill="black")
+					   text="Hacking Complete", font="Courier 30", fill="black")
 
 def win_mousePressed(app, event):
-	app.mode = 'menu'
+	win_changeMode(app, "menu")
 ##########################################
 
 ##########################################
 # Lose Mode
+def lose_changeMode(app, mode):
+	app.menuSfx = Audio("sfx/menuOpen.wav")
+	app.mode = mode
+
 def lose_redrawAll(app, canvas):
 	canvas.create_rectangle(0, 0, app.width, app.height, fill="gray")
 	canvas.create_text(app.width / 2, app.height / 2,
-					   text="GAME OVER", font="Arial 30 bold", fill="black")
+					   text="Hacking Failed", font="Courier 30", fill="black")
 
 def lose_mousePressed(app, event):
-	app.mode = 'menu'
+	lose_changeMode(app, "menu")
 ##########################################
 
 def appStarted(app):
-	app.mode = "menu"
+	initSprites(app)
 	app.board = None
 	app.pause = False
-	app.timeConstant = 0
-	initSprites(app)
+	app.mode = "menu"
+	app.menuSfx = Audio("sfx/menuOpen.wav")
 
 def initSprites(app):
 	# Ensures that block dimensions are 25px

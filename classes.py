@@ -1,7 +1,47 @@
+import re
+import os
 import math
 import time
+import wave
 import random
+import pyaudio
+import threading
 import numpy as np
+
+p = pyaudio.PyAudio()
+
+class Audio:
+	def __init__(self, path):
+		self.active = True
+		# https://people.csail.mit.edu/hubert/pyaudio/docs/
+		self.wf = wave.open(path, 'rb')
+		self.stream = p.open(format=p.get_format_from_width(self.wf.getsampwidth()),
+							 channels=self.wf.getnchannels(),
+							 rate=self.wf.getframerate(),
+							 output=True)
+		self.play()
+
+	def play(self):
+		# Creates separate threads for each audio effect
+		concurrentAudio = threading.Thread(target=self.audioThread)
+		concurrentAudio.start()
+
+	def stop(self):
+		self.stream.stop_stream()
+		self.stream.close()
+
+	# https://people.csail.mit.edu/hubert/pyaudio/docs/
+	def audioThread(self):
+		CHUNK = 1024
+		data = self.wf.readframes(CHUNK)
+		# Since boards only last a minute, unncessary to loop track.
+		while len(data):
+			# Terminates audio stream
+			if(not self.active):
+				self.stop()
+				return
+			self.stream.write(data)
+			data = self.wf.readframes(CHUNK)
 
 class Board:
 	def __init__(self, app, difficulty=5):
@@ -11,9 +51,11 @@ class Board:
 		self.cores = set()
 		self.blocks = set()
 		self.enemies = set()
-		# Stray projectiles remaining after entity defeated
+		# Orphaned projectiles remaining after entity defeated
 		self.projs = set()
 		self.populateBoard(app)
+		self.bgm = self.initBgm()
+		self.sfx = set()
 		self.time = time.time() + 60
 	
 	def gameDimensions(self, l):
@@ -24,7 +66,6 @@ class Board:
 		# initSprites() scaling calculations ensure block dimensions are 25x25
 		# Represents both length and width of grid since is square
 		l = int((self.dim[1] - self.dim[0]) / app.blockImg.height)
-		# https://numpy.org/doc/stable/user/absolute_beginners.html
 		randGrid = np.random.randint(0, 100, size=(l, l))
 
 		# Establishes the ratio of element frequency
@@ -123,11 +164,12 @@ class Board:
 		pos = indexToCoord(determinePosition())
 		self.cores.add(ShieldedCore(pos, (app.coreImg.width, app.coreImg.height)))
 
-	def initCores(self, app):
-		bDim = (app.width, app.height)
-		dim = (app.coreImg.width, app.coreImg.height)
-		core = ShieldedCore(bDim, dim)
-		return {core}
+	def initBgm(self):
+		# Selects a random audio file from the bgm folder.
+		# Uses regular expression to select only .wav files
+		files = [f for f in os.listdir("./bgm") if re.match('(.+).wav', f)]
+		path = f'bgm/{files[random.randint(0, len(files) - 1)]}'
+		return Audio(path)
 
 	def isLegalMove(self, entity):
 		x, y = entity.pos[0], entity.pos[1]
@@ -161,6 +203,11 @@ class Board:
 				if(self.detectCollision(collider, proj)):
 					collider.collisionBehavior(proj)
 					proj.collisionBehavior(collider)
+
+		for proj in self.projs:
+			if(self.detectCollision(collider, proj)):
+				collider.collisionBehavior(proj)
+				proj.collisionBehavior(collider)
 
 	# Using the Separating Axis theorem...
 	#	- Two convex objects do not overlap if there exists an axis onto which the two objects' projections do not overlap.
@@ -211,6 +258,7 @@ class Player:
 			return
 		self.health -= 1
 		self.hurt = 1
+		self.action = "hurt"
 
 	def move(self):
 		x0, y0 = self.pos[0], self.pos[1]
@@ -252,8 +300,9 @@ class Player:
 	
 	def autoFire(self, dim):
 		if(self.firingDelay > 0):
-			return
+			return False
 		self.createProjectile(dim)
+		return True
 	
 	def toggleTarget(self, enemies=set(), cores=set()):
 		if(self.target):
@@ -482,9 +531,6 @@ class ShieldedCore(Core):
 	def __init__(self, pos, dim):
 		super().__init__(pos, dim)
 		self.shield = True
-
-	def destroyShield(self):
-		self.shield = False
 	
 	def collisionBehavior(self, collider):
 		if(not self.shield):
