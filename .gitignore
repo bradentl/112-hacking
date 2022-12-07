@@ -47,5 +47,6 @@ __pycache__
 # Debugging files #
 ###################
 ref/*
+test.py
 debug.py
-classes2.py
+errors.txt

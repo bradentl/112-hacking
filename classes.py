@@ -7,12 +7,13 @@ class Board:
 	def __init__(self, app, difficulty=5):
 		# Since x=y, tuple contains x0 and x1 (or, y0 and y1)
 		self.dim = self.gameDimensions(app.width)
-		self.player = self.initPlayer(app)
-		self.cores = self.initCores(app)
-		self.blocks = {"block": set(), "dBlock": set(),"eBlock": set()}
+		self.player = None
+		self.cores = set()
+		self.blocks = set()
 		self.enemies = set()
+		# Stray projectiles remaining after entity defeated
+		self.projs = set()
 		self.populateBoard(app)
-		# Time limit set to arbitrary number for debugging
 		self.time = time.time() + 60
 	
 	def gameDimensions(self, l):
@@ -20,27 +21,29 @@ class Board:
 		return (margin, l - margin)
 	
 	def populateBoard(self, app):
-		# Scaling calculations ensure block dimensions are 25x25
-		l = int((self.dim[1] - self.dim[0]) / 25)
+		# initSprites() scaling calculations ensure block dimensions are 25x25
+		# Represents both length and width of grid since is square
+		l = int((self.dim[1] - self.dim[0]) / app.blockImg.height)
 		# https://numpy.org/doc/stable/user/absolute_beginners.html
-		randBoard = np.random.randint(0, 100, size=(l, l))
-		print(randBoard)
+		randGrid = np.random.randint(0, 100, size=(l, l))
 
-		ratio = {"empty":80, "block":19, "enemy":1}
-		# Transforms the majority of squares to empty
+		# Establishes the ratio of element frequency
+		ratio = {"empty": 80, "block": 19, "enemy": 1}
+
+		# Records previous iteration data
 		prev = (0, 0)
-		for division in ratio:
-			print(prev[1] + ratio[division])
-			randBoard[(prev[1] <= randBoard) & (randBoard < (prev[1] + ratio[division]))] = prev[0]
-			prev = (prev[0] + 1, prev[1] + ratio[division])
-		print(randBoard)
+		# Translates random grid values into element representations according to ratio
+		for freq in ratio:
+			randGrid[(prev[1] <= randGrid) & (randGrid < (prev[1] + ratio[freq]))] = prev[0]
+			prev = (prev[0] + 1, prev[1] + ratio[freq])
+		print(f'Current Board:\n{randGrid}')
 
-		def adjacentSquares(index, testedIndices=set()):
+		def emptyAdjacents(index, testedIndices=set()):
 			foundIndices = set()
 			testedIndices.add(index)
 			
 			bound = lambda i : max(0, min(i, l - 1))
-			# Orthogonal adjacent squares
+			# Only tests orthogonally adjacent squares
 			orthAdjs = {(index[0], bound(index[1] - 1)),
 						(index[0], bound(index[1] + 1)),
 						(bound(index[0] - 1), index[1]),
@@ -52,10 +55,10 @@ class Board:
 				if(square in testedIndices or square in foundIndices):
 					continue
 
-				if(randBoard[row][col] == randBoard[square[0]][square[1]]):
+				if(randGrid[row][col] == randGrid[square[0]][square[1]]):
 					foundIndices.add(index)
 					foundIndices.add(square)
-					result = adjacentSquares(square, testedIndices)
+					result = emptyAdjacents(square, testedIndices)
 					if(result):
 						# https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset
 						foundIndices = foundIndices | result
@@ -64,42 +67,61 @@ class Board:
 			else:
 				return foundIndices
 
+		# Additional grid variable neccesary since final board layout differs from randGrid,
+		# either by exception or addition of elements.
+		grid = np.zeros(shape=(l,l))
+
+		def indexToCoord(index):
+			row, col = index[0], index[1]
+			# numbers?
+			x, y = 0.5 * ((50 * col) + 25), 0.5 * ((50 * row) + 25)
+			return (x + self.dim[0], y + self.dim[0])
+
 		def entityAssignment(indices):
 			if(len(indices) == 0):
 				return []
 			else:
-				row, col = indices[0][0], indices[0][1]
-				x, y = 0.5 * ((50 * col) + 25), 0.5 * ((50 * row) + 25)
-				pos = (x + self.dim[0], y + self.dim[0])
-				print(indices[1:])
+				pos = indexToCoord((indices[0][0], indices[0][1]))
 				return [pos] + entityAssignment((indices[1:]))
 
 		# First array represents the row indices; second array represents column indices.
 		# https://numpy.org/doc/stable/reference/generated/numpy.nonzero.html
-		blockIndices = np.nonzero(randBoard == 1)
+		blockIndices = np.nonzero(randGrid == 1)
 		for i in range(len(blockIndices[0])):
-			adjacents = adjacentSquares((blockIndices[0][i], blockIndices[1][i]))
+			adjacents = emptyAdjacents((blockIndices[0][i], blockIndices[1][i]))
 			if(not adjacents):
 				continue
-			print(list(adjacents))
+			# 1:3 probability of EnemyBlock
+			blockType = random.randint(0, 3)
 			for pos in entityAssignment(list(adjacents)):
-				self.blocks["block"].add(Block(pos, (app.blockImg.width, app.blockImg.height)))
+				if(blockType == 0):
+					self.blocks.add(EnemyBlock(pos, (app.blockImg.width, app.blockImg.height)))
+				else:
+					self.blocks.add(Block(pos, (app.blockImg.width, app.blockImg.height)))
+				# grid[blockIndices[0][i]][blockIndices[1][i]] = 1
 
-		enemyIndices = np.nonzero(randBoard == 2)
+		enemyIndices = np.nonzero(randGrid == 2)
 		for i in range(len(enemyIndices[0])):
 			enemyIndices = [(enemyIndices[0][i], enemyIndices[1][i]) for i in range(len(enemyIndices[0]))]
 			enemyCoords = entityAssignment(enemyIndices)
 			for pos in enemyCoords:
 				self.enemies.add(Enemy(pos, (app.enemyImg.width, app.enemyImg.height)))
+				# grid[enemyIndices[0][i]][enemyIndices[1][i]] = 1
 
 		def determinePosition(preference=None):
-			pass
-	
-	def initPlayer(self, app):
-		# Player always spawns in same position
-		pos = (app.width / 2, (4 * app.height) / 5)
-		dim = (app.playerImg.width, app.playerImg.height)
-		return Player(pos, dim)
+			options = np.nonzero(randGrid == 0)
+			# If none provided, selects a random empty square.
+			if(not preference):
+				i = random.randint(0, len(options[0]))
+				return (options[0][i], options[1][i])
+
+		# (l // 2, (4 * l) // 5)
+
+		pos = indexToCoord(determinePosition())
+		self.player = Player(pos, (app.playerImg.width, app.playerImg.height))
+
+		pos = indexToCoord(determinePosition())
+		self.cores.add(ShieldedCore(pos, (app.coreImg.width, app.coreImg.height)))
 
 	def initCores(self, app):
 		bDim = (app.width, app.height)
@@ -124,23 +146,19 @@ class Board:
 
 		for core in self.cores:
 			if(self.detectCollision(collider, core)):
-				# print("core: collision")
 				collider.collisionBehavior(core)
 				core.collisionBehavior(collider)
 			for proj in core.projs:
 				if(self.detectCollision(collider, proj)):
-					# print("core proj: collision")
 					collider.collisionBehavior(proj)
 					proj.collisionBehavior(collider)
 
 		for enemy in self.enemies:
 			if(self.detectCollision(collider, enemy)):
-				# print("enemy: collision")
 				collider.collisionBehavior(enemy)
 				enemy.collisionBehavior(collider)
 			for proj in enemy.projs:
 				if(self.detectCollision(collider, proj)):
-					# print("enemy proj: collision")
 					collider.collisionBehavior(proj)
 					proj.collisionBehavior(collider)
 
@@ -168,19 +186,36 @@ class Player:
 		self.dim = dim
 		self.rot = 0
 		self.health = 3
+		self.hurt = False
 		self.projs = set()
 		self.firingDelay = 0
 		self.target = None
+		self.movements = {"Up": 0,
+						  "Down": 0,
+						  "Left": 0,
+						  "Right": 0
+		}
+		self.spin = False
+		self.fire = False
 		self.action = None
 	
 	def collisionBehavior(self, collider):
 		match collider:
-			case OrangeProjectile(): self.health -= 1
-			case PurpleProjectile(): self.health -= 1
+			case OrangeProjectile(): self.deductHealth()
+			case PurpleProjectile(): self.deductHealth()
 			case _: self.action = "undo"
+	
+	def deductHealth(self):
+		# Invincible during hurt animation
+		if(self.hurt):
+			return
+		self.health -= 1
+		self.hurt = 1
 
-	def move(self, x1, y1):
+	def move(self):
 		x0, y0 = self.pos[0], self.pos[1]
+		x1 = (self.movements["Left"] + self.movements["Right"]) * 5
+		y1 = (self.movements["Up"] + self.movements["Down"]) * 5
 		self.pos = (x0 + x1, y0 + y1)
 		# Returns original position in case movement must be undone
 		return (x0, y0)
@@ -189,6 +224,11 @@ class Player:
 		self.rot = (self.rot + d1) % 360
 		if(self.rot < 0):
 			self.rot = 360 + self.rot
+
+	def autoRotate(self, dir=1):
+		if(type(self.spin) == int):
+			dir = self.spin
+		self.rot = (self.rot + (dir * 6)) % 360
 
 	def createProjectile(self, dim):
 		if(self.firingDelay > 0):
@@ -209,11 +249,11 @@ class Player:
 		self.projs.add(proj)
 		# Delay before another projectile can be created
 		self.firingDelay = 2
-
-	def deductHealth(self):
-		self.health -= 1
-		# Returns boolean indicating whether player has lost
-		return (self.health > 0)
+	
+	def autoFire(self, dim):
+		if(self.firingDelay > 0):
+			return
+		self.createProjectile(dim)
 	
 	def toggleTarget(self, enemies=set(), cores=set()):
 		if(self.target):
@@ -239,6 +279,8 @@ class Player:
 		# Since enemyDistance has same order as targets, determine shortest length and use
 		# the index to determine the appropriate element.
 		self.target = targets[enemyDistance.index(min(enemyDistance))]
+		# Since target maintains a calculated rotation, turn off spinning.
+		self.spin = False
 	
 	def autoOrient(self):
 		x0, y0 = self.pos[0], self.pos[1]
@@ -317,7 +359,7 @@ class OrangeProjectile(Projectile):
 	def __init__(self, pos, dim, m):
 		super().__init__(pos, dim, m)
 		# Longer lifespan since they move slower
-		self.lifespan = self.lifespan * 2
+		self.lifespan = self.lifespan * 3
 	
 	def collisionBehavior(self, collider):
 		match collider:
@@ -330,7 +372,7 @@ class PurpleProjectile(Projectile):
 
 	def __init__(self, pos, dim, m):
 		super().__init__(pos, dim, m)
-		self.lifespan = self.lifespan * 2
+		self.lifespan = self.lifespan * 3
 	
 	def collisionBehavior(self, collider):
 		match collider:
@@ -340,11 +382,12 @@ class PurpleProjectile(Projectile):
 class Core:
 	imgPath = "assets/core.png"
 
-	def __init__(self, bDim, dim):
+	def __init__(self, pos, dim):
 		self.pattern = random.randint(0,2)
-		self.pos = self.posFromPattern(bDim)
+		self.pos = pos
 		self.dim = dim
 		self.health = 5
+		self.hurt = False
 		self.projs = set()
 		# Angle of projectile fire
 		self.deg = 0
@@ -355,11 +398,11 @@ class Core:
 	# Behavior if collides with projectile
 	def collisionBehavior(self, collider):
 		match collider:
-			case PlayerProjectile(): self.health -= 1
+			case PlayerProjectile(): self.deductHealth()
 	
-	def posFromPattern(self, bDim):
-		match self.pattern:
-			case _: return (bDim[0] / 2, bDim[1] / 2)
+	def deductHealth(self):
+		self.health -= 1
+		self.hurt = 1
 	
 	def evade(self, pPos, pos=None):
 		if(not pos):
