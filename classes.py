@@ -14,7 +14,7 @@ class Audio:
 	def __init__(self, path):
 		self.active = True
 		# https://people.csail.mit.edu/hubert/pyaudio/docs/
-		self.wf = wave.open(path, 'rb')
+		self.wf = wave.open(path, "rb")
 		self.stream = p.open(format=p.get_format_from_width(self.wf.getsampwidth()),
 							 channels=self.wf.getnchannels(),
 							 rate=self.wf.getframerate(),
@@ -51,9 +51,9 @@ class Board:
 		self.cores = set()
 		self.blocks = set()
 		self.enemies = set()
+		self.populateBoard(app)
 		# Orphaned projectiles remaining after entity defeated
 		self.projs = set()
-		self.populateBoard(app)
 		self.bgm = self.initBgm()
 		self.sfx = set()
 		self.time = time.time() + 60
@@ -156,8 +156,6 @@ class Board:
 				i = random.randint(0, len(options[0]))
 				return (options[0][i], options[1][i])
 
-		# (l // 2, (4 * l) // 5)
-
 		pos = indexToCoord(determinePosition())
 		self.player = Player(pos, (app.playerImg.width, app.playerImg.height))
 
@@ -167,7 +165,7 @@ class Board:
 	def initBgm(self):
 		# Selects a random audio file from the bgm folder.
 		# Uses regular expression to select only .wav files
-		files = [f for f in os.listdir("./bgm") if re.match('(.+).wav', f)]
+		files = [f for f in os.listdir("./bgm") if re.match("(.+).wav", f)]
 		path = f'bgm/{files[random.randint(0, len(files) - 1)]}'
 		return Audio(path)
 
@@ -183,44 +181,88 @@ class Board:
 	# Method gathers all neccesary elements to test for collision and passes them to detectCollision()
 	def collisionManager(self, collider, exclusions=set()):
 		# Following the separation axis theorem, determine possible dividing axes
-		# dividingAxes = collider.collisionAxes()
-		# print(dividingAxes)
+		poly1 = collider.vertices()
+		testEntities = self.cores | self.enemies | self.projs
 
-		for core in self.cores:
-			if(self.detectCollision(collider, core)):
-				collider.collisionBehavior(core)
-				core.collisionBehavior(collider)
-			for proj in core.projs:
-				if(self.detectCollision(collider, proj)):
-					collider.collisionBehavior(proj)
-					proj.collisionBehavior(collider)
+		for block in self.blocks:
+			if(self.detectCollision(poly1, block.vertices())):
+				collider.collisionBehavior(block)
+		
+		testEntities = self.cores | self.enemies | self.projs
+		for entity in testEntities:
+			if(self.detectCollision(poly1, entity.vertices())):
+				collider.collisionBehavior(entity)
+				entity.collisionBehavior(collider)
+			if(hasattr(entity, "projs")):
+				for proj in entity.projs:
+					if(self.detectCollision(poly1, proj.vertices())):
+						collider.collisionBehavior(proj)
+						proj.collisionBehavior(collider)
+		
+		# for core in self.cores:
+		# 	if(self.detectCollision(poly1, core.vertices())):
+		# 		collider.collisionBehavior(core)
+		# 		core.collisionBehavior(collider)
+		# 	for proj in core.projs:
+		# 		if(self.detectCollision(poly1, proj.vertices())):
+		# 			collider.collisionBehavior(proj)
+		# 			proj.collisionBehavior(collider)
 
-		for enemy in self.enemies:
-			if(self.detectCollision(collider, enemy)):
-				collider.collisionBehavior(enemy)
-				enemy.collisionBehavior(collider)
-			for proj in enemy.projs:
-				if(self.detectCollision(collider, proj)):
-					collider.collisionBehavior(proj)
-					proj.collisionBehavior(collider)
+		# for enemy in self.enemies:
+		# 	if(self.detectCollision(poly1, enemy.vertices())):
+		# 		collider.collisionBehavior(enemy)
+		# 		enemy.collisionBehavior(collider)
+		# 	for proj in enemy.projs:
+		# 		if(self.detectCollision(poly1, proj.vertices())):
+		# 			collider.collisionBehavior(proj)
+		# 			proj.collisionBehavior(collider)
 
-		for proj in self.projs:
-			if(self.detectCollision(collider, proj)):
-				collider.collisionBehavior(proj)
-				proj.collisionBehavior(collider)
+		# for proj in self.projs:
+		# 	if(self.detectCollision(poly1, proj.vertices())):
+		# 		collider.collisionBehavior(proj)
+		# 		proj.collisionBehavior(collider)
 
 	# Using the Separating Axis theorem...
 	#	- Two convex objects do not overlap if there exists an axis onto which the two objects' projections do not overlap.
 	#	- Such an axis only exists if one of the sides of one of the polygons forms such a line.
-	def detectCollision(self, collider, testEntity):
+	# The following algorithm is heavily referenced from https://hackmd.io/@US4ofdv7Sq2GRdxti381_A/ryFmIZrsl.
+	def detectCollision(self, poly1, poly2):
+		vertices1 = [np.array(v, "float64") for v in poly1]
+		vertices2 = [np.array(v, "float64") for v in poly2]
+
+		def determineEdges(vertices):
+			edges = []
+			for i in range(len(vertices)):
+				edge = vertices[(i + 1) % len(vertices)] - vertices[i]
+				edges.append(edge)
+			return edges
+
+		edges = determineEdges(vertices1) + determineEdges(vertices2)
+
+		orthogonals = [np.array([-e[1], e[0]]) for e in edges]
+
 		# If every axis intersects, both objects intersect.
-		x, y = collider.pos[0], collider.pos[1]
-		dim = (testEntity.pos[0] - (testEntity.dim[0] / 2), testEntity.pos[0] + (testEntity.dim[0] / 2),
-			   testEntity.pos[1] - (testEntity.dim[1] / 2), testEntity.pos[1] + (testEntity.dim[1] / 2))
-		
-		if(x > dim[0] and x < dim[1] and y > dim[2] and y < dim[3]):
+		def isSeparatingAxis(orth, vert1, vert2):
+			min1, max1 = float("+inf"), float("-inf")
+			min2, max2 = float("+inf"), float("-inf")
+
+			for v in vert1:
+				projection = np.dot(v, orth)
+				min1 = min(min1, projection)
+				max1 = max(max1, projection)
+			for v in vert2:
+				projection = np.dot(v, orth)
+				min2 = min(min2, projection)
+				max2 = max(max2, projection)
+
+			if max1 >= min2 and max2 >= min1:
+				return False
 			return True
-		return False
+
+		for orth in orthogonals:
+			if(isSeparatingAxis(orth, vertices1, vertices2)):
+				return False
+		return True
 
 	def gameWon(self):
 		return (len(self.cores) == 0)
@@ -244,21 +286,44 @@ class Player:
 		}
 		self.spin = False
 		self.fire = False
-		self.action = None
+		self.action = set()
 	
 	def collisionBehavior(self, collider):
 		match collider:
-			case OrangeProjectile(): self.deductHealth()
-			case PurpleProjectile(): self.deductHealth()
-			case _: self.action = "undo"
+			case OrangeProjectile():	self.deductHealth()
+			case PurpleProjectile():	self.deductHealth()
+			case EnemyBlock():
+				self.deductHealth()
+				self.action.add("undo")
+				print(self.action)
+			case _:						self.action.add("undo")
+	
+	def vertices(self):
+		# Angle deviation calculations
+		c = math.sqrt((self.dim[0] / 2)**2 + (self.dim[1] / 2)**2)
+		A = math.degrees(math.asin(self.dim[0] / (2 * c)))
+		# Vertices coordinate calculations
+		def coordCalculator(angle):
+			r = math.sqrt(self.dim[0]**2 + self.dim[1]**2) / 2
+			x = self.pos[0] + (r * math.cos(math.radians(-angle)))
+			y = self.pos[1] + (r * math.sin(math.radians(-angle)))
+			return (x, y)
+		
+		vertices = [coordCalculator(self.rot - 90 - A),
+					coordCalculator(self.rot - 90 + A),
+					coordCalculator(self.rot + 90 - A),
+					coordCalculator(self.rot + 90 + A)
+		]
+		return vertices
 	
 	def deductHealth(self):
 		# Invincible during hurt animation
-		if(self.hurt):
+		# Prevents double injury during same turn
+		if(self.hurt or "hurt" in self.action):
 			return
 		self.health -= 1
 		self.hurt = 1
-		self.action = "hurt"
+		self.action.add("hurt")
 
 	def move(self):
 		x0, y0 = self.pos[0], self.pos[1]
@@ -291,8 +356,8 @@ class Player:
 		# vy is negative since canvas y-direction is inverted from standard Cartesian plane
 		m = (-vy, vx) 
 
-		# Determines position of origin (should be player tip)
-		pos = self.pos # placeholder value for debug
+		# Determines position of origin
+		pos = self.pos
 		proj = PlayerProjectile(pos, dim, m, self.rot)
 		self.projs.add(proj)
 		# Delay before another projectile can be created
@@ -376,12 +441,12 @@ class PlayerProjectile(Projectile):
 	
 	def collisionBehavior(self, collider):
 		match collider:
-			case OrangeProjectile(): return
-			case Enemy(): return
-			case _: self.action = "despawn"
+			# Player projectile should spear through single-health entities
+			case OrangeProjectile():	return
+			case Enemy():				return
+			case _: self.action =		"despawn"
 	
-	# Rectangle should have two possible dividing axes.
-	def collisionAxes(self):
+	def vertices(self):
 		# Angle deviation calculations
 		c = math.sqrt((self.dim[0] / 2)**2 + (self.dim[1] / 2)**2)
 		A = math.degrees(math.asin(self.dim[0] / (2 * c)))
@@ -397,10 +462,7 @@ class PlayerProjectile(Projectile):
 					coordCalculator(self.rot - 90 + A), # Bottom Right
 					coordCalculator(self.rot - 90 - A)  # Botom Left
 		]
-
-		axes = set()
-		# Determine axes from vertices
-		pass
+		return vertices
 
 class OrangeProjectile(Projectile):
 	imgPath = "assets/oProjectile.png"
@@ -409,12 +471,21 @@ class OrangeProjectile(Projectile):
 		super().__init__(pos, dim, m)
 		# Longer lifespan since they move slower
 		self.lifespan = self.lifespan * 3
-	
+
 	def collisionBehavior(self, collider):
 		match collider:
-			case Block(): self.action = "despawn"
-			case Player(): self.action = "despawn"
-			case PlayerProjectile(): self.action = "despawn"
+			case Block():				self.action = "despawn"
+			case Player(): 				self.action = "despawn"
+			case PlayerProjectile():	self.action = "despawn"
+
+	# Since circles aren't a polygon, their "edges" can be represented by radius
+	def vertices(self):
+		vertices = [(self.pos[0] + (self.dim[0] / 2), self.pos[1] + (self.dim[1] / 2)),
+					(self.pos[0] - (self.dim[0] / 2), self.pos[1] + (self.dim[1] / 2)),
+					(self.pos[0] - (self.dim[0] / 2), self.pos[1] - (self.dim[1] / 2)),
+					(self.pos[0] + (self.dim[0] / 2), self.pos[1] - (self.dim[1] / 2))
+		]
+		return vertices
 
 class PurpleProjectile(Projectile):
 	imgPath = "assets/pProjectile.png"
@@ -425,8 +496,16 @@ class PurpleProjectile(Projectile):
 	
 	def collisionBehavior(self, collider):
 		match collider:
-			case Block(): self.action = "despawn"
-			case Player(): self.action = "despawn"
+			case Block():	self.action = "despawn"
+			case Player():	self.action = "despawn"
+	
+	def vertices(self):
+		vertices = [(self.pos[0] + (self.dim[0] / 2), self.pos[1] + (self.dim[1] / 2)),
+					(self.pos[0] - (self.dim[0] / 2), self.pos[1] + (self.dim[1] / 2)),
+					(self.pos[0] - (self.dim[0] / 2), self.pos[1] - (self.dim[1] / 2)),
+					(self.pos[0] + (self.dim[0] / 2), self.pos[1] - (self.dim[1] / 2))
+		]
+		return vertices
 
 class Core:
 	imgPath = "assets/core.png"
@@ -435,7 +514,7 @@ class Core:
 		self.pattern = random.randint(0,2)
 		self.pos = pos
 		self.dim = dim
-		self.health = 5
+		self.health = 10
 		self.hurt = False
 		self.projs = set()
 		# Angle of projectile fire
@@ -447,7 +526,15 @@ class Core:
 	# Behavior if collides with projectile
 	def collisionBehavior(self, collider):
 		match collider:
-			case PlayerProjectile(): self.deductHealth()
+			case PlayerProjectile():	self.deductHealth()
+	
+	def vertices(self):
+		vertices = [(self.pos[0] + (self.dim[0] / 2), self.pos[1] + (self.dim[1] / 2)),
+					(self.pos[0] - (self.dim[0] / 2), self.pos[1] + (self.dim[1] / 2)),
+					(self.pos[0] - (self.dim[0] / 2), self.pos[1] - (self.dim[1] / 2)),
+					(self.pos[0] + (self.dim[0] / 2), self.pos[1] - (self.dim[1] / 2))
+		]
+		return vertices
 	
 	def deductHealth(self):
 		self.health -= 1
@@ -542,6 +629,14 @@ class Block:
 	def __init__(self, pos, dim):
 		self.pos = pos
 		self.dim = dim
+	
+	def vertices(self):
+		vertices = [(self.pos[0] + (self.dim[0] / 2), self.pos[1] + (self.dim[1] / 2)),
+					(self.pos[0] - (self.dim[0] / 2), self.pos[1] + (self.dim[1] / 2)),
+					(self.pos[0] - (self.dim[0] / 2), self.pos[1] - (self.dim[1] / 2)),
+					(self.pos[0] + (self.dim[0] / 2), self.pos[1] - (self.dim[1] / 2))
+		]
+		return vertices
 
 class DestructableBlock(Block):
 	imgPath = "assets/dBlock.png"
@@ -572,7 +667,29 @@ class Enemy:
 
 	def collisionBehavior(self, collider):
 		match collider:
-			case PlayerProjectile(): self.action = "despawn"
+			case Block():				self.action = "undo"
+			case Player():				self.action = "undo"
+			case Core():				self.action = "undo"
+			# case Enemy():				self.action = "undo"
+			case PlayerProjectile():	self.action = "despawn"
+	
+	def vertices(self):
+		# Angle deviation calculations
+		c = math.sqrt((self.dim[0] / 2)**2 + (self.dim[1] / 2)**2)
+		A = math.degrees(math.asin(self.dim[0] / (2 * c)))
+		# Vertices coordinate calculations
+		def coordCalculator(angle):
+			r = math.sqrt(self.dim[0]**2 + self.dim[1]**2) / 2
+			x = self.pos[0] + (r * math.cos(math.radians(-angle)))
+			y = self.pos[1] + (r * math.sin(math.radians(-angle)))
+			return (x, y)
+		
+		vertices = [coordCalculator(self.rot - 90 - A),
+					coordCalculator(self.rot - 90 + A),
+					coordCalculator(self.rot + 90 - A),
+					coordCalculator(self.rot + 90 + A)
+		]
+		return vertices
 	
 	# Slowly move forwards according to orientation
 	def follow(self, pPos):

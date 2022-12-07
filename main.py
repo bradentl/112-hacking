@@ -1,10 +1,6 @@
 from classes import *
 from cmu_112_graphics import *
 
-# Maintains constant app size
-def sizeChanged(app):
-	app.setSize(res[0], res[1])
-
 ##########################################
 # Menu Mode
 def menu_changeMode(app, mode):
@@ -13,16 +9,20 @@ def menu_changeMode(app, mode):
 	app.menuSfx.active = False
 	app.mode = mode
 
+# Maintains constant app size
+def menu_sizeChanged(app):
+	app.setSize(res[0], res[1])
+
 def menu_redrawAll(app, canvas):
 	canvas.create_rectangle(0, 0, app.width, app.height, fill="gray")
-	canvas.create_text(app.width / 2, 150, text='Menu',
-					   font="Arial 26 bold", fill='black')
+	canvas.create_text(app.width / 2, 150, text="Menu",
+					   font="Arial 26 bold", fill="black")
 	# canvas.create_image(app.width / 2, ((19 * app.height) / 20) - (app.keyboardImg.height / 2),
 	# 					  image=ImageTk.PhotoImage(app.keyboardImg))
 	# top = app.height - ((app.height / 20) + (app.keyboardImg.height))
 	# canvas.create_rectangle(0, 0, app.width, top, fill="red")
-	# canvas.create_text(app.width / 2, app.height / 2, text='Space',
-	# 				   font="Courier 26 bold", fill='black')
+	# canvas.create_text(app.width / 2, app.height / 2, text="Space",
+	# 				   font="Courier 26 bold", fill="black")
 
 def menu_mousePressed(app, event):
 	menu_changeMode(app, "game")
@@ -35,6 +35,48 @@ def game_changeMode(app, mode):
 	for sfx in app.board.sfx:
 		sfx.active = False
 	app.mode = mode
+
+# Maintains constant app size
+def game_sizeChanged(app):
+	app.setSize(res[0], res[1])
+
+def game_keyPressed(app, event):
+	match event.key:
+		# Even if player.spin is an integer, value will change to boolean
+		# i.e. not -1 = False, not 1 = False
+		case "s":		app.board.player.spin = not app.board.player.spin
+		# Controls the direction of spin by replacing with integer value.
+		# i.e. False * -1 = 0; True * -1 = -1; -1 * -1 = 1
+		case "v":		app.board.player.spin = app.board.player.spin * -1
+		case "r": 		app.board.player.spin = 1
+		case "f": 		app.board.player.spin = -1
+		# Defined angles
+		case "q":		app.board.player.rot = 45
+		case "w":		app.board.player.rot = 0
+		case "e":		app.board.player.rot = -45
+		case "a":		app.board.player.rot = 90
+		case "d":		app.board.player.rot = -90
+		case "z":		app.board.player.rot = 135
+		case "x":		app.board.player.rot = 180
+		case "c":		app.board.player.rot = -135
+		case "Space":	app.board.player.fire = True
+		case "l":		app.board.player.fire = not app.board.player.fire
+		case "t":		app.board.player.toggleTarget(app.board.enemies, app.board.cores)
+		case "p":		app.pause = not app.pause
+		case "Up":		app.board.player.movements["Up"] = -1
+		case "Down": 	app.board.player.movements["Down"] = +1
+		case "Left":	app.board.player.movements["Left"] = -1
+		case "Right":	app.board.player.movements["Right"] = +1
+
+def game_keyReleased(app, event):
+	match event.key:
+		case "Space":	app.board.player.fire = False
+		case "Up":		app.board.player.movements["Up"] = 0
+		case "Down": 	app.board.player.movements["Down"] = 0
+		case "Left":	app.board.player.movements["Left"] = 0
+		case "Right":	app.board.player.movements["Right"] = 0
+		case "r": 		app.board.player.spin = False
+		case "f": 		app.board.player.spin = False
 
 def game_timerFired(app):
 	if(app.pause):
@@ -51,13 +93,13 @@ def game_timerFired(app):
 		app.board.player.pos = pos
 	else:
 		app.board.collisionManager(app.board.player)
-		if(app.board.player.action == "hurt"):
+		if("hurt" in app.board.player.action):
 			app.board.sfx.add(Audio("sfx/pHit.wav"))
 			# Reset action
-			app.board.player.action = None
-		elif(app.board.player.action == "undo"):
+			app.board.player.action.remove("hurt")
+		if("undo" in app.board.player.action):
 			app.board.player.pos = pos
-			app.board.player.action = None
+			app.board.player.action.remove("undo")
 	
 	# Logic works even though player.spin can hold integer values since
 	# 0 acts like a False boolean value (not 0 = True)
@@ -84,7 +126,7 @@ def game_timerFired(app):
 			proj.lifespan -= 1
 
 	# Slight delay to enemy functions for QoL
-	if(app.timeConstant > 1):
+	if(app.timeConstant > 0):
 		for core in app.board.cores.copy():
 			if(core.health <= 0):
 				app.board.cores.remove(core)
@@ -102,7 +144,7 @@ def game_timerFired(app):
 
 			if(core.shield and len(app.board.enemies) == 0):
 				core.shield = False
-				if(app.timeConstant > 0):
+				if(app.timeConstant > 1):
 					app.board.sfx.add(Audio("sfx/shieldBreak.wav"))
 		
 			# Shouldn't matter whether oProjImg or pProjImg since both have identical dimensions
@@ -113,6 +155,7 @@ def game_timerFired(app):
 					core.projs.remove(proj)
 				else:
 					proj.move()
+					app.board.collisionManager(proj)
 					# Performs removal foremost to prevent unnecessary operations
 					if(proj.isOffscreen((app.width, app.height))):
 						core.projs.remove(proj)
@@ -131,6 +174,11 @@ def game_timerFired(app):
 			pos = enemy.follow(app.board.player.pos)
 			if(not app.board.isLegalMove(enemy)):
 				enemy.pos = pos
+			else:
+				app.board.collisionManager(enemy)
+				if(enemy.action == "undo"):
+					enemy.pos = pos
+					enemy.action = None
 			enemy.autoFire((app.oProjImg.width, app.oProjImg.height))
 
 			for proj in enemy.projs.copy():
@@ -138,6 +186,7 @@ def game_timerFired(app):
 					enemy.projs.remove(proj)
 				else:
 					proj.move()
+					app.board.collisionManager(proj)
 					if(proj.isOffscreen((app.width, app.height))):
 						enemy.projs.remove(proj)
 						continue
@@ -162,42 +211,6 @@ def game_timerFired(app):
 	# Useful for activating code at intervals of time constant
 	app.timeConstant += 1
 
-def game_keyPressed(app, event):
-	match event.key:
-		case "r": 		app.board.player.rotate(+10) # CCW
-		case "f": 		app.board.player.rotate(-10) # CW
-		# Defined angles
-		case "q":		app.board.player.rot = 45
-		case "w":		app.board.player.rot = 0
-		case "e":		app.board.player.rot = -45
-		case "a":		app.board.player.rot = 90
-		case "d":		app.board.player.rot = -90
-		case "z":		app.board.player.rot = 135
-		case "x":		app.board.player.rot = 180
-		case "c":		app.board.player.rot = -135
-		# Even if player.spin is an integer, value will change to boolean
-		# i.e. not -1 = False, not 1 = False
-		case "s":		app.board.player.spin = not app.board.player.spin
-		# Controls the direction of spin by replacing with integer value.
-		# i.e. False * -1 = 0; True * -1 = -1; -1 * -1 = 1
-		case "v":		app.board.player.spin = app.board.player.spin * -1
-		case "Space":	app.board.player.fire = True
-		case "l":		app.board.player.fire = not app.board.player.fire
-		case "t":		app.board.player.toggleTarget(app.board.enemies, app.board.cores)
-		case "p":		app.pause = not app.pause
-		case "Up":		app.board.player.movements["Up"] = -1
-		case "Down": 	app.board.player.movements["Down"] = +1
-		case "Left":	app.board.player.movements["Left"] = -1
-		case "Right":	app.board.player.movements["Right"] = +1
-
-def game_keyReleased(app, event):
-	match event.key:
-		case "Space":	app.board.player.fire = False
-		case "Up":		app.board.player.movements["Up"] = 0
-		case "Down": 	app.board.player.movements["Down"] = 0
-		case "Left":	app.board.player.movements["Left"] = 0
-		case "Right":	app.board.player.movements["Right"] = 0
-
 def game_redrawAll(app, canvas):
 	# Drawing background
 	canvas.create_rectangle(0, 0, app.width, app.height, fill="gray")
@@ -216,7 +229,7 @@ def game_redrawAll(app, canvas):
 		if(app.board.player.hurt):
 			canvas.create_image(app.board.player.pos[0], app.board.player.pos[1],
 								image=ImageTk.PhotoImage(app.hurtPlayerImg.rotate(app.board.player.rot, expand=True)))
-			app.board.player.hurt = (app.board.player.hurt + 1) % 5
+			app.board.player.hurt = (app.board.player.hurt + 1) % 10
 		else:
 			canvas.create_image(app.board.player.pos[0], app.board.player.pos[1],
 								image=ImageTk.PhotoImage(app.playerImg.rotate(app.board.player.rot, expand=True)))
@@ -260,7 +273,7 @@ def game_redrawAll(app, canvas):
 		
 		# Drawing timer
 		canvas.create_text(app.board.player.pos[0] + app.playerImg.width, app.board.player.pos[1] - (app.playerImg.height / 2),
-						   text='%.2f'%(app.board.time - time.time()), font="Arial 10 bold", fill="black")
+						   text="%.2f"%(app.board.time - time.time()), font="Arial 10 bold", fill="black")
 ##########################################
 
 ##########################################
@@ -268,6 +281,10 @@ def game_redrawAll(app, canvas):
 def win_changeMode(app, mode):
 	app.menuSfx = Audio("sfx/menuOpen.wav")
 	app.mode = mode
+
+# Maintains constant app size
+def win_sizeChanged(app):
+	app.setSize(res[0], res[1])
 
 def win_redrawAll(app, canvas):
 	canvas.create_rectangle(0, 0, app.width, app.height, fill="gray")
@@ -283,6 +300,10 @@ def win_mousePressed(app, event):
 def lose_changeMode(app, mode):
 	app.menuSfx = Audio("sfx/menuOpen.wav")
 	app.mode = mode
+
+# Maintains constant app size
+def lose_sizeChanged(app):
+	app.setSize(res[0], res[1])
 
 def lose_redrawAll(app, canvas):
 	canvas.create_rectangle(0, 0, app.width, app.height, fill="gray")
