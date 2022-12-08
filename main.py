@@ -55,6 +55,7 @@ def menu_timerFired(app):
 ##########################################
 # Game Mode
 def game_changeMode(app, mode):
+	# Closes active audio threads
 	app.board.bgm.active = False
 	for sfx in app.board.sfx:
 		sfx.active = False
@@ -92,6 +93,8 @@ def game_keyPressed(app, event):
 		case "Left":	app.board.player.movements["Left"] = -1
 		case "Right":	app.board.player.movements["Right"] = +1
 
+# Using keyReleased in tandem with keyPressed allows for smoother movement and
+# multiple key actions activated simultaneously.
 def game_keyReleased(app, event):
 	match event.key:
 		case "Space":	app.board.player.fire = False
@@ -150,6 +153,7 @@ def game_timerFired(app):
 			proj.lifespan -= 1
 
 	for block in app.board.blocks.copy():
+		# Only DestructibleBlock need testing
 		if(type(block) != DestructibleBlock):
 			continue
 		if(block.health <= 0):
@@ -161,7 +165,7 @@ def game_timerFired(app):
 			if(core.health <= 0):
 				app.board.cores.remove(core)
 
-			if(len(app.board.cores) == 0):
+			if(app.board.gameWon()):
 				game_changeMode(app, "win")
 				# Deliberately excluded from sfx set such that audio continues after scene change.
 				Audio("sfx/cExplode.wav")
@@ -169,13 +173,16 @@ def game_timerFired(app):
 
 			if(core.firingDelay > 0):
 				core.firingDelay -= 1
-		
-			core.evade(app.board.player.pos)
 
 			if(core.shield and len(app.board.enemies) == 0):
 				core.shield = False
 				if(app.timeConstant > 1):
 					app.board.sfx.add(Audio("sfx/shieldBreak.wav"))
+			
+			# If core is within specified distance of player, begin evasive action.
+			d = math.sqrt((app.board.player.pos[0] - core.pos[0])**2 + (app.board.player.pos[1] - core.pos[1])**2)
+			if(d < 200 and app.timeConstant % 3 == 0):
+				core.evade(app)
 		
 			# Shouldn't matter whether oProjImg or pProjImg since both have identical dimensions
 			core.firingPattern(app.board.player.pos, (app.oProjImg.width, app.oProjImg.height))
@@ -257,6 +264,7 @@ def game_redrawAll(app, canvas):
 
 		# Drawing player
 		if(app.board.player.hurt):
+			# Damage animation
 			canvas.create_image(app.board.player.pos[0], app.board.player.pos[1],
 								image=ImageTk.PhotoImage(app.hurtPlayerImg.rotate(app.board.player.rot, expand=True)))
 			app.board.player.hurt = (app.board.player.hurt + 1) % 10
@@ -264,6 +272,7 @@ def game_redrawAll(app, canvas):
 			canvas.create_image(app.board.player.pos[0], app.board.player.pos[1],
 								image=ImageTk.PhotoImage(app.playerImg.rotate(app.board.player.rot, expand=True)))
 
+		# Drawing target lines
 		if(app.board.player.target):
 			canvas.create_line(app.board.player.pos[0], app.board.player.pos[1],
 							   app.board.player.target.pos[0], app.board.player.target.pos[1], fill="blue", dash=(5,1))
@@ -293,6 +302,7 @@ def game_redrawAll(app, canvas):
 		
 		# Drawing blocks
 		for block in app.board.blocks:
+			# Only DestructibleBlocks have the attribute hurt
 			if(hasattr(block, "hurt") and block.hurt):
 				canvas.create_image(block.pos[0], block.pos[1], image=ImageTk.PhotoImage(app.hurtDBlockImg))
 				block.hurt = (block.hurt + 1) % 2

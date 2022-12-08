@@ -23,6 +23,7 @@ class Audio:
 
 	def play(self):
 		# Creates separate threads for each audio effect
+		# Seperate threading is necessary because timerFired() isn't called frequently enough.
 		concurrentAudio = threading.Thread(target=self.audioThread)
 		concurrentAudio.start()
 
@@ -78,10 +79,14 @@ class Board:
 			randGrid[(prev[1] <= randGrid) & (randGrid < (prev[1] + ratio[freq]))] = prev[0]
 			prev = (prev[0] + 1, prev[1] + ratio[freq])
 
-		def emptyAdjacents(index, testedIndices=set()):
+		# Checks if randomly spawned blocks are orthogonally connected and forms mass
+		# with adjacent connections.
+		# This eliminates single Blocks littered across the stage.
+		def emptyOrthAdjacents(index, testedIndices=set()):
 			foundIndices = set()
 			testedIndices.add(index)
 			
+			# Ensures the indices are within the list bounds.
 			bound = lambda i : max(0, min(i, l - 1))
 			# Only tests orthogonally adjacent squares
 			orthAdjs = {(index[0], bound(index[1] - 1)),
@@ -98,8 +103,9 @@ class Board:
 				if(randGrid[row][col] == randGrid[square[0]][square[1]]):
 					foundIndices.add(index)
 					foundIndices.add(square)
-					result = emptyAdjacents(square, testedIndices)
+					result = emptyOrthAdjacents(square, testedIndices)
 					if(result):
+						# Uses union to combine two sets
 						# https://docs.python.org/3/library/stdtypes.html#set-types-set-frozenset
 						foundIndices = foundIndices | result
 			if(len(foundIndices) == 0):
@@ -107,10 +113,6 @@ class Board:
 			else:
 				return foundIndices
 
-		# randGrid[0][0] = 2
-		# randGrid[1][0] = 1
-		# randGrid[0][1] = 1
-		# randGrid[1][1] = 1
 		# Additional grid variable neccesary since final board layout differs from randGrid,
 		# either by exception or addition of elements.
 		grid = np.zeros(shape=(l,l))
@@ -121,6 +123,7 @@ class Board:
 			x, y = 0.5 * ((50 * col) + 25), 0.5 * ((50 * row) + 25)
 			return (x + self.dim[0], y + self.dim[0])
 
+		# Recursively runs through entity data and assigns pertinent values.
 		def entityAssignment(indices, entityNum):
 			if(len(indices) == 0):
 				return []
@@ -133,10 +136,10 @@ class Board:
 		# https://numpy.org/doc/stable/reference/generated/numpy.nonzero.html
 		blockIndices = np.nonzero(randGrid == 1)
 		for i in range(len(blockIndices[0])):
-			adjacents = emptyAdjacents((blockIndices[0][i], blockIndices[1][i]))
+			adjacents = emptyOrthAdjacents((blockIndices[0][i], blockIndices[1][i]))
 			if(not adjacents):
 				continue
-			# 1:3 probability of EnemyBlock, 1:3 probability of DestructibleBlock
+			# 1:4 probability of EnemyBlock, 1:4 probability of DestructibleBlock
 			blockType = random.randint(0, 3)
 			for pos in entityAssignment(list(adjacents), 1):
 				if(blockType == 0):
@@ -146,71 +149,15 @@ class Board:
 				else:
 					self.blocks.add(Block(pos, (app.blockImg.width, app.blockImg.height)))
 
-		# def findEdgeSquares():
-		# 	edgeSquares =  ([(0, i) for i in range(len(grid)) if grid[0][i] == 0]
-		# 				  + [(len(grid) - 1, i) for i in range(len(grid)) if grid[len(grid) - 1, i] == 0]
-		# 				  + [(i, 0) for i in range(len(grid)) if grid[i][0] == 0]
-		# 				  + [(i, len(grid) - 1) for i in range(len(grid)) if grid[i][len(grid) - 1] == 0]
-		# 	)
-
-		# def isTrapped(iPos, edgeSquares):
-		# 	for targetPos in edgeSquares:
-		# 		if(iPos == targetPos):
-		# 			continue
-		# 		possible = pathSearch(iPos, targetPos, set())
-		# 		if(not possible):
-		# 			# print(grid)
-		# 			# print(possible)
-		# 			print(iPos, targetPos)
-		# 			return True
-		# 	return False
-		
-		# def pathSearch(iPos, targetPos, pastMoves, depth=0):
-		# 	pastMoves.add(iPos)
-		# 	moves = possibleMoves(iPos)
-		# 	for move in moves:
-		# 		# print(f'{"*" * depth}{move}\t{targetPos}')
-		# 		if(move in pastMoves or grid[move[0]][move[1]] != 0):
-		# 			continue
-		# 		if(move == targetPos):
-		# 			return True
-				
-		# 		result = pathSearch(move, targetPos, pastMoves, depth=depth + 1)
-		# 		if(result is True):
-		# 			return True
-		# 	return False
-		
-		# def possibleMoves(iPos):
-		# 	bound = lambda i : max(0, min(i, l - 1))
-		# 	moves = {(iPos[0], bound(iPos[1] - 1)),
-		# 			 (iPos[0], bound(iPos[1] + 1)),
-		# 			 (bound(iPos[0] - 1), iPos[1]),
-		# 			 (bound(iPos[0] + 1), iPos[1]),
-		# 			 (bound(iPos[0] + 1), bound(iPos[1] - 1)),
-		# 			 (bound(iPos[0] + 1), bound(iPos[1] + 1)),
-		# 			 (bound(iPos[0] - 1), bound(iPos[1] - 1)),
-		# 			 (bound(iPos[0] - 1), bound(iPos[1] + 1))
-		# 	}
-		# 	return moves
-		
-		# def findNewPos():
-		# 	enemyIndices = np.nonzero(randGrid == 0)
-		# 	print(grid)
-		# 	def randIndex():
-		# 		return random.randint(0, len(enemyIndices[0]) - 1)
-		# 	newPos = (enemyIndices[0][randIndex()], enemyIndices[1][randIndex()])
-		# 	print(f'np: {newPos}')
-		# 	if(isTrapped(newPos, edgeSquares)):
-		# 		return findNewPos()
-		# 	return newPos
-
 		enemyIndices = np.nonzero(randGrid == 2)
+		# Ensures a minimum of five enemies on screen
+		while(len(enemyIndices[0]) < 5):
+			options = np.nonzero(randGrid == 0)
+			i = random.randint(0, len(options[0]) - 1)
+			randGrid[options[0][i]][options[1][i]] = 2
+			enemyIndices = np.nonzero(randGrid == 2)
 		for i in range(len(enemyIndices[0])):
 			enemyIndices = [(enemyIndices[0][i], enemyIndices[1][i]) for i in range(len(enemyIndices[0]))]
-			# edgeSquares = findEdgeSquares()
-			# for index in enemyIndices:
-			# 	if(isTrapped(index, edgeSquares)):
-			# 		index = findNewPos()
 			enemyCoords = entityAssignment(enemyIndices, 2)
 			for pos in enemyCoords:
 				self.enemies.add(Enemy(pos, (app.enemyImg.width, app.enemyImg.height)))
@@ -227,9 +174,19 @@ class Board:
 				i = random.randint(0, len(options[0]) - 1)
 				return (options[0][i], options[1][i])
 
+			def findEdgeSquares():
+					edgeSquares = ([(0, i) for i in range(len(grid)) if grid[0][i] == 0]
+								 + [(len(grid) - 1, i) for i in range(len(grid)) if grid[len(grid) - 1, i] == 0]
+								 + [(i, 0) for i in range(len(grid)) if grid[i][0] == 0]
+								 + [(i, len(grid) - 1) for i in range(len(grid)) if grid[i][len(grid) - 1] == 0]
+					)
+					return edgeSquares
+
 			# If none provided, selects a random empty square.
 			if(not pref):
 				iPos = randomPosition()
+				if(pPos and iPos in findEdgeSquares()):
+					return determinePosition(None, depth + 1, pPos)
 				return determinePosition(iPos, depth + 1, pPos)
 
 			# First preference is given to positions that have empty adjacencies
@@ -263,6 +220,10 @@ class Board:
 			
 			# For cores, second preference is given to position furthest away from player
 			if(pPos):
+				# Avoid edge positions
+				if(currPos in findEdgeSquares()):
+					return determinePosition(pref, depth + 1, pPos)
+
 				dPref = distance(pPos[0], pPos[1], pref[0], pref[1])
 				dCurr = distance(pPos[0], pPos[1], currPos[0], currPos[1])
 				return determinePosition(pref if (dPref > dCurr) else currPos, depth + 1, pPos)
@@ -275,16 +236,16 @@ class Board:
 				dCurr = min(dCurr, distance(enemyIndices[0][i], enemyIndices[1][i], currPos[0], currPos[1]))
 			return determinePosition(pref if (dPref > dCurr) else currPos, depth + 1, pPos)
 		
-		i = determinePosition()
+		pI = determinePosition()
 		# Adds player position to grid
-		grid[i[0]][i[1]] = 3
-		pos = indexToCoord(i)
+		grid[pI[0]][pI[1]] = 3
+		pos = indexToCoord(pI)
 		self.player = Player(pos, (app.playerImg.width, app.playerImg.height))
 
-		i = determinePosition(pPos=pos)
+		cI = determinePosition(pPos=pI)
 		# Adds core position to grid
-		grid[i[0]][i[1]] = 4
-		pos = indexToCoord(i)
+		grid[cI[0]][cI[1]] = 4
+		pos = indexToCoord(cI)
 		self.cores.add(ShieldedCore(pos, (app.coreImg.width, app.coreImg.height)))
 		print(f'Current Board:\n{grid}')
 
@@ -316,6 +277,7 @@ class Board:
 		if(collider in testEntities):
 			testEntities.remove(collider)
 
+		# Every collision requires Block tests
 		for block in self.blocks:
 			if(self.detectCollision(poly1, block.vertices())):
 				collider.collisionBehavior(block)
@@ -347,8 +309,10 @@ class Board:
 				edges.append(edge)
 			return edges
 
+		# Combines both lists of edges
 		edges = determineEdges(vertices1) + determineEdges(vertices2)
 
+		# Perpendicular slop is the negative reciprocal
 		orthogonals = [np.array([-e[1], e[0]]) for e in edges]
 
 		# If every axis intersects, both objects intersect.
@@ -365,6 +329,7 @@ class Board:
 				min2 = min(min2, projection)
 				max2 = max(max2, projection)
 
+			# Checks whether projections overlap
 			if max1 >= min2 and max2 >= min1:
 				return False
 			return True
@@ -489,7 +454,7 @@ class Player:
 		targets = list(cores if (len(enemies) == 0) else enemies)
 
 		# If there's nothing to target, reset target value and return.
-		# (Technically there would always be something to target otherwise the game would end,
+		# (Technically there would always be something to target else the game would end,
 		# but its best to err on the side of caution and prevent crashes.)
 		if(len(targets) == 0):
 			self.target = None
@@ -550,7 +515,7 @@ class PlayerProjectile(Projectile):
 	
 	def collisionBehavior(self, collider):
 		match collider:
-			# Player projectile should spear through single-health entities
+			# PlayerProjectile should spear through single-health entities
 			case OrangeProjectile():	return
 			case Enemy():				return
 			case _: self.action =		"despawn"
@@ -645,24 +610,39 @@ class Core:
 		]
 		return vertices
 	
+	def testCollision(self, testCore, app):
+		if(not app.board.isLegalMove(testCore)):
+			return True
+		# Following the separation axis theorem, determine possible dividing axes
+		poly1 = testCore.vertices()
+		testEntities = app.board.blocks | app.board.enemies | {app.board.player}
+		
+		for entity in testEntities:
+			if(app.board.detectCollision(poly1, entity.vertices())):
+				return True
+		return False
+
+	def evade(self, app, deg=0, bestMove=None):
+		if(deg >= 360):
+			if(not bestMove):
+				return
+			self.pos = bestMove
+		else:
+			vx = math.sin(math.radians(90 - deg))
+			vy = math.sin(math.radians(deg))
+			pos = (self.pos[0] + vx, self.pos[1] + vy)
+			if(self.testCollision(ShieldedCore(pos, self.dim), app)):
+				return self.evade(app, deg + 3, bestMove=None)
+			if(not bestMove):
+				return self.evade(app, deg + 3, pos)
+			cD = math.sqrt((pos[0] - app.board.player.pos[0])**2 + (pos[1] - app.board.player.pos[1])**2)
+			bD = math.sqrt((bestMove[0] - app.board.player.pos[0])**2 + (bestMove[1] - app.board.player.pos[1])**2)
+			bestMove = pos if (cD > bD) else bestMove
+			return self.evade(app, deg + 3, bestMove)
+
 	def deductHealth(self):
 		self.health -= 1
 		self.hurt = 1
-	
-	def evade(self, pPos, pos=None):
-		if(not pos):
-			pos = self.pos
-		# Backtracking function determining furthest single legal move away from block
-		# runs each "turn" until is safely set distance apart
-		d = math.sqrt((pos[0] - pPos[0])**2 + (pos[1] - pPos[1])**2)
-		safeDistance = 0 # safe distance should change depending on scale
-		if(d > safeDistance):
-			# Continue typical movement pattern
-			# return functionForTypicalMovement()
-			pass
-		else:
-			# recursive backtracking
-			pass
 
 	def createProjectile(self, deg, dim, pType=True):
 		# Define slope from angle
@@ -696,7 +676,6 @@ class Core:
 	def firingPattern(self, pPos, dim):
 		if(self.firingDelay > 0):
 			return
-		
 		pType = self.pType
 
 		# Various firing patterns for variety
@@ -709,10 +688,14 @@ class Core:
 				self.deg += 10
 				self.firingDelay = 7
 			case 2:
-				deg = self.angleToPlayer(pPos)
+				rot = self.angleToPlayer(pPos)
+				neg = -1 if (self.deg - rot > 0) else 1
+				neg = neg * (-1 if (abs(self.deg - rot) > 180) else 1)
+				turn = 30 if (abs(self.deg - rot) > 10) else 1
+				self.deg = (self.deg + (neg * turn)) % 360
 				for adj in range(-20, 21, 20):
 					self.pType = not self.pType
-					self.createProjectile(deg + adj, dim, self.pType)
+					self.createProjectile(self.deg + adj, dim, self.pType)
 				self.firingDelay = 8
 			case _:
 				for deg in range(0, 360, 45):
@@ -786,7 +769,6 @@ class Enemy:
 			case Block():				self.action = "undo"
 			case Player():				self.action = "undo"
 			case Core():				self.action = "undo"
-			# case Enemy():				self.action = "undo"
 			case PlayerProjectile():	self.action = "despawn"
 	
 	def vertices(self):
